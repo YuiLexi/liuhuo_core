@@ -1,5 +1,10 @@
 # liuhuo_core 独立测试环境
 
+**分支约定：`develop` 只管开发代码；`test` 只用于测试 develop 的内容。**
+
+工作流：develop 上完成开发并提交 → 在 test 分支上 `git merge develop` 同步最新代码 →
+运行 `bash test_scripts/run_all.sh` 对 develop 的成果做端到端验证 → 测试不通过则回 develop 修复，再同步重测。
+
 本目录是与源码**完全隔离**的端到端测试环境 —— 不使用 Rust `#[test]` 测试框架，
 而是独立可执行脚本 + 自带测试数据。源码分支（develop/main）不包含本目录。
 
