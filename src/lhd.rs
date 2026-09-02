@@ -14,13 +14,13 @@
 //! ## version=1
 //! ## table=TbEquip
 //! ## record=game.EquipCfg
-//! ## fields=id|name|quality|atk|price|tags|attr
+//! ## fields=id;name;quality|atk|price|tags|attr
 //! ## order=id
 //! ## schema=a1b2c3d4
 //!
 //! // 品质枚举: White=0 Green=1 Blue=2 Purple=3
-//! {1|"铁剑"|Green|10|100|["武器"]|{锐利=5}}
-//! :{9|"旧木盾"|White|3|50|["防具"]|{}}   // 已停用
+//! {1;"铁剑";Green;10;100;["武器"];{锐利=5}}
+//! :{9;"旧木盾";White;3;50;["防具"];{}}   // 已停用
 //! ```
 
 use crate::data::IDataLoader;
@@ -89,7 +89,7 @@ impl LhdHeader {
         out.push_str(&format!("## version={}\n", self.version));
         out.push_str(&format!("## table={}\n", self.table));
         out.push_str(&format!("## record={}\n", self.record));
-        out.push_str(&format!("## fields={}\n", self.fields.join("|")));
+        out.push_str(&format!("## fields={}\n", self.fields.join(";")));
         out.push_str(&format!("## order={}\n", self.order));
         if let Some(s) = &self.schema {
             out.push_str(&format!("## schema={}\n", s));
@@ -171,7 +171,7 @@ fn parse_header(text: &str) -> Result<(LhdHeader, usize), String> {
                 h.fields = if f.is_empty() {
                     Vec::new()
                 } else {
-                    f.split('|').map(|s| s.trim().to_string()).collect()
+                    f.split(';').map(|s| s.trim().to_string()).collect()
                 };
                 Ok((h, i))
             }
@@ -183,7 +183,7 @@ fn parse_header(text: &str) -> Result<(LhdHeader, usize), String> {
             h.fields = if f.is_empty() {
                 Vec::new()
             } else {
-                f.split('|').map(|s| s.trim().to_string()).collect()
+                f.split(';').map(|s| s.trim().to_string()).collect()
             };
             Ok((h, line_no))
         }
@@ -354,7 +354,7 @@ pub fn load_lhd_from_str(
                     "头部 fields 共 {} 列，schema 层级字段 {} 个：{}",
                     header.fields.len(),
                     schema_names.len(),
-                    schema_names.join("|")
+                    schema_names.join(";")
                 ),
             ));
         }
@@ -458,7 +458,7 @@ pub fn lhd_serialize(v: &DType) -> String {
         ),
         DType::Bean(_name, vals) => format!(
             "{{{}}}",
-            vals.iter().map(lhd_serialize).collect::<Vec<_>>().join("|")
+            vals.iter().map(lhd_serialize).collect::<Vec<_>>().join(";")
         ),
         DType::List(vals) | DType::Array(vals) => format!(
             "[{}]",
@@ -492,7 +492,7 @@ pub fn record_to_line(rec: &Record, ctx: &dyn DataContext) -> String {
                 .iter()
                 .map(serialize_value)
                 .collect::<Vec<_>>()
-                .join("|"),
+                .join(";"),
         );
     }
     let _ = ctx;
@@ -704,15 +704,15 @@ mod tests {
 ## version=1
 ## table=TbEquip
 ## record=game.EquipCfg
-## fields=id|name|quality
+## fields=id;name;quality
 ## order=id
 ## schema=xxxxxxxx
 
 // 品质: White Green Blue
-{1|\"铁剑\"|Green}
-{2|\"寒冰弓\"|Blue} @tag(dev)
-:{3|\"旧木盾\"|White} // 已停用
-{4|\"紫金冠\"|Purple} @tag(stage=alpha)
+{1;\"铁剑\";Green}
+{2;\"寒冰弓\";Blue} @tag(dev)
+:{3;\"旧木盾\";White} // 已停用
+{4;\"紫金冠\";Purple} @tag(stage=alpha)
 ";
 
     #[test]
@@ -748,7 +748,7 @@ mod tests {
 
     #[test]
     fn fields_mismatch_is_error() {
-        let doc = DOC.replace("id|name|quality", "id|name|level");
+        let doc = DOC.replace("id;name;quality", "id;name;level");
         let r = load_lhd_from_str(&doc, &test_table(), &ctx()).unwrap();
         assert!(r
             .diagnostics
@@ -764,24 +764,24 @@ mod tests {
         let r2 = load_lhd_from_str(&t1, &test_table(), &ctx()).unwrap();
         let t2 = save_lhd(&test_table(), &r2.data, &r2.disabled, &ctx(), &[]);
         assert_eq!(t1, t2, "保存幂等：二次往返字节级一致");
-        assert!(t1.contains(":{3|"));
+        assert!(t1.contains(":{3;"));
         // 乱序输入按主键排
         let shuffled = "## format=lhd
 ## version=1
 ## table=TbEquip
 ## record=game.EquipCfg
-## fields=id|name|quality
+## fields=id;name;quality
 ## order=id
 
-{3|\"c\"|Green}
-{1|\"a\"|Green}
-{2|\"b\"|Green}
+{3;\"c\";Green}
+{1;\"a\";Green}
+{2;\"b\";Green}
 ";
         let r3 = load_lhd_from_str(shuffled, &test_table(), &ctx()).unwrap();
         let t3 = save_lhd(&test_table(), &r3.data, &r3.disabled, &ctx(), &[]);
         let ids: Vec<&str> = t3.lines().filter(|l| l.starts_with('{')).collect();
         assert!(
-            ids[0].starts_with("{1|") && ids[2].starts_with("{3|"),
+            ids[0].starts_with("{1;") && ids[2].starts_with("{3;"),
             "主键排序: {:?}",
             ids
         );
@@ -844,7 +844,7 @@ mod tests {
 
     #[test]
     fn comment_and_tag_extraction() {
-        let line = r#"{1|"http://x|y"|"a // b"} @tag(dev) // 尾注"#;
+        let line = r#"{1;"http://x|y";"a // b"} @tag(dev) // 尾注"#;
         let Some(Ok(pl)) = parse_line(line) else {
             panic!("应解析成功")
         };

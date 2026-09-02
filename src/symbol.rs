@@ -449,6 +449,19 @@ impl DataContext for SymbolTable {
                         return Some(item.value);
                     }
                 }
+                // flag 组合表达式（Fire|Ice）：仅 flag 枚举允许；每段须是已定义项名/别名/整数
+                if value.contains('|') {
+                    if !e.is_flag {
+                        return None;
+                    }
+                    let lookup = |name: &str| {
+                        e.items
+                            .iter()
+                            .find(|it| it.name == name || it.alias.as_deref() == Some(name))
+                            .map(|it| it.value)
+                    };
+                    return crate::defs::parse_flag_expr(value, &lookup).ok();
+                }
                 crate::defs::parse_int_literal(value).ok()
             }
             _ => None,
