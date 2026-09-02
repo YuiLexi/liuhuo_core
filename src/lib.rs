@@ -33,8 +33,8 @@ pub use data::{DataLoaderRegistry, IDataLoader, JsonDataLoader, load_table_from_
 pub use defs::{
     DefBean, DefEnum, DefEnumItem, DefField, DefKind, DefRecord, DefTable, DefValue, RawBean,
     RawDef, RawEnum, RawEnumItem, RawField, RawRecord, RawTable, TableIndex, TableMode,
-    compile_bean, compile_enum, compile_record, compile_table, full_name, parse_index,
-    parse_int_literal,
+    compile_bean, compile_enum, compile_record, compile_table, full_name, parse_flag_expr,
+    parse_index, parse_int_literal,
 };
 pub use diagnostic::{DiagLevel, Diagnostic, error_count};
 pub use export::{IExporter, JsonDataExporter, JsonSchemaExporter, record_to_json};

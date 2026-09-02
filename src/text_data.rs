@@ -11,7 +11,7 @@
 //!
 //! - 字段顺序由 schema（bean 层级字段）决定，字段名不重复出现在每行
 //! - 值语法（类型指导）：数字含 `0x`/`0b`/`_`、字符串 `"..."`、list `[a,b]`、set `(a,b)`、
-//!   map `{k:v}`、bean `{v1|v2}`（`|` 分隔字段）
+//!   map `{k=v}`、bean `{v1;v2}`（`;` 分隔字段，`|` 保留给枚举位或）
 //! - 行尾 `@tag(a,b)` 行标签
 
 use crate::data::IDataLoader;
@@ -41,7 +41,7 @@ pub fn serialize_value(v: &DType) -> String {
             vals.iter()
                 .map(serialize_value)
                 .collect::<Vec<_>>()
-                .join("|")
+                .join(";")
         ),
         DType::List(vals) | DType::Array(vals) => format!(
             "[{}]",
@@ -203,7 +203,7 @@ pub fn parse_value(s: &str, ti: &TypeInfo, ctx: &dyn DataContext) -> Result<DTyp
             let fields = ctx
                 .bean_hierarchy_fields(name)
                 .ok_or_else(|| format!("未知 Bean '{}'", name))?;
-            let parts = split_top_level(inner, '|');
+            let parts = split_top_level(inner, ';');
             if parts.len() != fields.len() {
                 return Err(format!(
                     "Bean '{}' 需 {} 个字段，实际 {} 个",

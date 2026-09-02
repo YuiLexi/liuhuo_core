@@ -293,7 +293,7 @@ pub fn compile_enum(raw: &RawEnum) -> (DefEnum, Vec<String>, Vec<Diagnostic>) {
         diags.push(Diagnostic::error(&full, "枚举 name 不能为空"));
     }
 
-    let mut items = Vec::new();
+    let mut items: Vec<DefEnumItem> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
     // 自动递增：非 flag 从 0 开始 +1；flag 从 1 开始位左移
     let mut next: i64 = if raw.is_flag { 1 } else { 0 };
@@ -311,14 +311,19 @@ pub fn compile_enum(raw: &RawEnum) -> (DefEnum, Vec<String>, Vec<Diagnostic>) {
             match parse_int_literal(v) {
                 Ok(val) => value = val,
                 Err(_) => {
-                    // 名称引用（引用前面已定义的枚举项）
-                    if let Some(prev) = items.iter().find(|p: &&DefEnumItem| p.name == *v) {
-                        value = prev.value;
-                    } else {
-                        diags.push(Diagnostic::error(
+                    // 名称引用或 flag 组合表达式（Fire / Fire|Ice / A|2）：引用已定义的前置项
+                    let lookup = |name: &str| {
+                        items
+                            .iter()
+                            .find(|p| p.name == name || p.alias.as_deref() == Some(name))
+                            .map(|p| p.value)
+                    };
+                    match parse_flag_expr(v, &lookup) {
+                        Ok(val) => value = val,
+                        Err(_) => diags.push(Diagnostic::error(
                             &full,
                             format!("枚举项 '{}' 的值 '{}' 无法解析", it.name, v),
-                        ));
+                        )),
                     }
                 }
             }
@@ -635,6 +640,32 @@ pub fn parse_int_literal(s: &str) -> Result<i64, String> {
     Ok(if neg { -val } else { val })
 }
 
+/// 解析 flag 组合表达式：`Fire|Ice`、`A|B|C`、`1|2`、`Fire|0x4`。
+/// 每段可以是整数字面量或已知枚举项名/别名；`|` 为按位或。
+/// `resolve` 提供名称→值查询（定义端=已编译前置项；数据端=枚举全部项）。
+pub fn parse_flag_expr(expr: &str, resolve: &dyn Fn(&str) -> Option<i64>) -> Result<i64, String> {
+    let mut result: i64 = 0;
+    let mut any = false;
+    for part in expr.split('|') {
+        let part = part.trim();
+        if part.is_empty() {
+            return Err(format!("flag 表达式 '{}' 含空段", expr));
+        }
+        let val = match parse_int_literal(part) {
+            Ok(v) => v,
+            Err(_) => resolve(part).ok_or_else(|| {
+                format!("flag 表达式段 '{}' 既非整数也非已知枚举项", part)
+            })?,
+        };
+        result |= val;
+        any = true;
+    }
+    if !any {
+        return Err(format!("flag 表达式 '{}' 为空", expr));
+    }
+    Ok(result)
+}
+
 /// 解析索引串：`a+b` 联合、`a,b` 多键。
 pub fn parse_index(s: Option<&str>, full: &str, diags: &mut Vec<Diagnostic>) -> Vec<TableIndex> {
     let mut out = Vec::new();
@@ -671,6 +702,47 @@ pub fn parse_index(s: Option<&str>, full: &str, diags: &mut Vec<Diagnostic>) -> 
 mod tests {
     use super::*;
     use crate::types::MapResolver;
+
+    #[test]
+    fn flag_expr_parse() {
+        let table: std::collections::HashMap<&str, i64> =
+            [("None", 0), ("Fire", 1), ("Ice", 2), ("Wind", 4)].into_iter().collect();
+        let resolve = |n: &str| table.get(n).copied();
+        assert_eq!(parse_flag_expr("Fire|Ice", &resolve).unwrap(), 3);
+        assert_eq!(parse_flag_expr("Fire|Ice|Wind", &resolve).unwrap(), 7);
+        assert_eq!(parse_flag_expr("1|2", &resolve).unwrap(), 3);
+        assert_eq!(parse_flag_expr("Fire|0x4", &resolve).unwrap(), 5);
+        assert_eq!(parse_flag_expr("Fire", &resolve).unwrap(), 1);
+        assert!(parse_flag_expr("Fire|Unknown", &resolve).is_err());
+        assert!(parse_flag_expr("Fire|", &resolve).is_err());
+    }
+
+    #[test]
+    fn enum_flag_combined_definition() {
+        let raw = RawEnum {
+            name: "Element".into(),
+            module: "game".into(),
+            comment: None,
+            alias: None,
+            groups: vec![],
+            is_flag: true,
+            is_unique: false,
+            properties: Default::default(),
+            items: vec![
+                RawEnumItem { name: "None".into(), value: Some("0".into()), alias: None, comment: None, properties: Default::default() },
+                RawEnumItem { name: "Fire".into(), value: Some("1".into()), alias: None, comment: None, properties: Default::default() },
+                RawEnumItem { name: "Ice".into(), value: Some("2".into()), alias: None, comment: None, properties: Default::default() },
+                RawEnumItem { name: "Both".into(), value: Some("Fire|Ice".into()), alias: None, comment: None, properties: Default::default() },
+                RawEnumItem { name: "All".into(), value: Some("Fire|Ice|0x4".into()), alias: None, comment: None, properties: Default::default() },
+            ],
+        };
+        let (def, _deps, diags) = compile_enum(&raw);
+        assert!(diags.iter().all(|d| !d.is_error()), "{:?}", diags);
+        let both = def.items.iter().find(|i| i.name == "Both").unwrap();
+        assert_eq!(both.value, 3, "Fire|Ice = 1|2 = 3");
+        let all = def.items.iter().find(|i| i.name == "All").unwrap();
+        assert_eq!(all.value, 7, "Fire|Ice|0x4 = 7");
+    }
 
     #[test]
     fn parse_int_various() {
