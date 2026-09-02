@@ -14,6 +14,7 @@ pub mod diagnostic;
 pub mod export;
 pub mod formula;
 pub mod l10n;
+pub mod lhd;
 pub mod project;
 pub mod symbol;
 pub mod text_data;
@@ -41,6 +42,7 @@ pub use formula::{
     ComputedColumn, EvalEnv, Expr, apply_formula, compute_columns, eval, parse_expr,
 };
 pub use l10n::{extract_localization, to_l10n_json, validate_path, validate_paths};
+pub use lhd::{LHD_FORMAT, LhdDataLoader, LhdHeader, LhdLoadResult, load_lhd_from_str, record_to_line, save_lhd, schema_fingerprint};
 pub use project::{
     CONFIG_FILE, PROJECT_FILE, ProjectCompileOutcome, ProjectInfo, TreeNode, compile_project,
     create_data_file, create_definition_file, create_folder, create_project, delete_path,
