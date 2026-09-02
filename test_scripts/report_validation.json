@@ -1,0 +1,132 @@
+{
+  "failed": 0,
+  "groups": {
+    "K": {
+      "cases": [
+        {
+          "detail": "",
+          "name": "矩阵工程编译零诊断",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "表数量 = 6（map×3 + list + one + 多态map）",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "记录总数 = 10（2+2+2+2+1+1）",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "编译缓存 ok=true",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "符号表编译零错误",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "枚举=2 / Bean=4 / Record=1 / 表=6",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "继承层级字段 = 7（父2+自5）",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "层级字段首列为父类 id",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "record 索引自动映射到 TbLoot（index=[id]）",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "nonneg 反例：count=-1 被捕获",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "nonneg 反例：仅 1 条错误",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "nonneg 经多态子类生效（count=-3）",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "size 反例：空列表被捕获",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "size 反例：4 元素超上界被捕获",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "ref 反例：容器内 ref=999 不存在",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "ref 正例：引用存在的 id 无 ref 诊断",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "path 反例：不存在的路径被捕获",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "path 正例：绝对路径存在则通过",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "record 反例：.lhd 重复 id 被捕获",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "增量：索引列不存在立即诊断",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "增量：update 修复后错误消失",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "增量：只重检依赖者（TbLootRec）",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "增量：无关定义不被重检",
+          "passed": true
+        }
+      ],
+      "failed": 0,
+      "passed": 23,
+      "total": 23
+    }
+  },
+  "passed": 23,
+  "suite": "校验矩阵端到端测试（K 组）",
+  "tool": "liuhuo_core",
+  "total": 23,
+  "verdict": "PASS"
+}
