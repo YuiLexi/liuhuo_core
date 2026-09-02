@@ -30,9 +30,13 @@ rustc --edition 2024 \
     -o test_scripts/e2e_pipeline.exe \
     test_scripts/e2e_pipeline.rs
 
-echo "== [2/3] 运行端到端测试 =="
-./test_scripts/e2e_pipeline.exe
-RC=$?
+echo "== [2/3] 运行端到端测试（基础 + 综合）=="
+RC=0
+./test_scripts/e2e_pipeline.exe || RC=1
+
+echo "-- 综合套件（全量/增量编译·校验·代码生成·数据导出）--"
+rustc --edition 2024     -L target/debug/deps     $EXTERN     --extern liuhuo_core="${RLIB}"     -o test_scripts/e2e_full_suite.exe     test_scripts/e2e_full_suite.rs
+./test_scripts/e2e_full_suite.exe || RC=1
 
 echo "== [3/3] 完成 =="
 exit $RC

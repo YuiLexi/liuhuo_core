@@ -1,0 +1,305 @@
+{
+  "failed": 0,
+  "groups": {
+    "A": {
+      "cases": [
+        {
+          "detail": "",
+          "name": "编译零诊断",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "表数量 = 3（map+list+one）",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "记录总数 = 6（3+2+1）",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "编译缓存 ok=true",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "缓存记录数一致",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "符号表编译零错误",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "枚举数 = 2",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "Bean 数 = 3",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "继承层级字段 = 7（父2+自5）",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "层级字段含父类 id",
+          "passed": true
+        }
+      ],
+      "failed": 0,
+      "passed": 10,
+      "total": 10
+    },
+    "B": {
+      "cases": [
+        {
+          "detail": "",
+          "name": "创建即校验：未定义类型立即诊断",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "恢复：Enum 注册后 Bean 无错误",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "增量重检：改动只波及 Quality+ItemCfg",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "删除传播：Bean 立即报未定义类型",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "删除后重建：依赖者再次恢复",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "validate_draft 不污染符号表",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "update 未注册定义报错",
+          "passed": true
+        }
+      ],
+      "failed": 0,
+      "passed": 7,
+      "total": 7
+    },
+    "C": {
+      "cases": [
+        {
+          "detail": "",
+          "name": "range 越界被捕获",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "map 主键重复被捕获",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "数据错误计数 >= 2",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "枚举非法值被捕获",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "类型不匹配被捕获",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "one 表多条记录被捕获",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "list 联合索引重复被捕获",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "文本格式数据 + one 表单条通过",
+          "passed": true
+        }
+      ],
+      "failed": 0,
+      "passed": 8,
+      "total": 8
+    },
+    "D": {
+      "cases": [
+        {
+          "detail": "",
+          "name": "定义收集 = 5（2枚举+3Bean）",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "CS 文件生成（Config.cs）",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "CS 含枚举 Quality",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "CS 含继承 EquipCfg",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "CS 含层级字段 price",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "TS 文件生成（config.ts）",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "TS 含枚举 Quality",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "TS 含继承 EquipCfg",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "TS 含层级字段 price",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "RUST 文件生成（config.rs）",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "RUST 含枚举 Quality",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "RUST 含继承 EquipCfg",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "RUST 含层级字段 price",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "C# 继承语法（含 BaseItem 基类）",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "TS interface 生成",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "Rust struct 生成",
+          "passed": true
+        }
+      ],
+      "failed": 0,
+      "passed": 16,
+      "total": 16
+    },
+    "E": {
+      "cases": [
+        {
+          "detail": "",
+          "name": "map 导出 = 对象且键为 1/2/3",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "map 导出记录字段完整（name/quality/attr）",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "枚举字段导出为数值（Green=1）",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "list 导出 = 数组且 2 条",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "list 导出保留行序",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "one 导出 = 单对象",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "文本格式数据正确解码",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "apply_formula 更新 3 行",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "公式计算正确（100*2+1=201）",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "compute_columns 物化（atk+100）",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "导出产物 3 个文件",
+          "passed": true
+        }
+      ],
+      "failed": 0,
+      "passed": 11,
+      "total": 11
+    }
+  },
+  "passed": 52,
+  "suite": "管线功能闭环综合测试",
+  "tool": "liuhuo_core",
+  "total": 52,
+  "verdict": "PASS"
+}
