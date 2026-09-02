@@ -302,7 +302,7 @@ fn extract_trailing_paren_tags(s: &str) -> Result<(&str, HashMap<String, String>
     Ok((s, HashMap::new()))
 }
 
-/// 解析 `k=v,k2=v2` 标签串。
+/// 解析 `k=v,k2=v2` 标签串（裸标签 `k` 等价于 `k=true`）。
 fn parse_tags(s: &str) -> Result<HashMap<String, String>, String> {
     let mut tags = HashMap::new();
     let s = s.trim();
@@ -314,11 +314,13 @@ fn parse_tags(s: &str) -> Result<HashMap<String, String>, String> {
         if part.is_empty() {
             continue;
         }
-        let eq = part
-            .find('=')
-            .ok_or_else(|| format!("标签 '{}' 缺少 '='", part))?;
-        let k = part[..eq].trim().to_string();
-        let v = part[eq + 1..].trim().to_string();
+        let (k, v) = match part.find('=') {
+            Some(eq) => (
+                part[..eq].trim().to_string(),
+                part[eq + 1..].trim().to_string(),
+            ),
+            None => (part.to_string(), "true".to_string()),
+        };
         if k.is_empty() {
             return Err(format!("标签键不能为空: '{}'", s));
         }
@@ -501,6 +503,21 @@ mod tests {
         // 容器上的标签
         let ti = parse_type("list<int>(range=[1,3])", &r).unwrap();
         assert_eq!(ti.tags.get("range").unwrap(), "[1,3]");
+    }
+
+    #[test]
+    fn parse_bare_and_valued_tags() {
+        let r = EmptyResolver;
+        let ti = parse_type("int(nonneg)", &r).unwrap();
+        assert_eq!(ti.tags.get("nonneg").unwrap(), "true");
+
+        let ti = parse_type("int(nonneg,range=[0,9])", &r).unwrap();
+        assert_eq!(ti.tags.get("nonneg").unwrap(), "true");
+        assert_eq!(ti.tags.get("range").unwrap(), "[0,9]");
+
+        let ti = parse_type("int(a,b=c)", &r).unwrap();
+        assert_eq!(ti.tags.get("a").unwrap(), "true");
+        assert_eq!(ti.tags.get("b").unwrap(), "c");
     }
 
     #[test]

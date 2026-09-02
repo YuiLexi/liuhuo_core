@@ -37,10 +37,11 @@ impl ValidatorRegistry {
         Self::default()
     }
 
-    /// 注册内置校验器（range / unique-key / single-record）。
+    /// 注册内置校验器（range / nonneg / unique-key / single-record）。
     pub fn with_defaults() -> Self {
         let mut r = Self::new();
         r.register_field(RangeValidator);
+        r.register_field(NonNegativeValidator);
         r.register_table(UniqueKeyValidator);
         r.register_table(SingleRecordValidator);
         r
@@ -89,6 +90,44 @@ impl IDataValidator for RangeValidator {
             ));
         }
         Ok(())
+    }
+}
+
+/// 非负校验（`nonneg` 标签）。
+#[derive(Debug, Default)]
+pub struct NonNegativeValidator;
+
+impl IDataValidator for NonNegativeValidator {
+    fn name(&self) -> &str {
+        "nonneg"
+    }
+
+    fn validate(&self, value: &DType, type_info: &TypeInfo) -> Result<(), String> {
+        let Some(tag) = type_info.tags.get("nonneg") else {
+            return Ok(());
+        };
+        if tag.is_empty() {
+            return Ok(());
+        }
+        match value {
+            DType::Int(v) => {
+                if *v < 0 {
+                    Err(format!("值 {} 为负，不满足非负约束", v))
+                } else {
+                    Ok(())
+                }
+            }
+            DType::UInt(_) => Ok(()),
+            DType::Float(v) => {
+                if *v < 0.0 {
+                    Err(format!("值 {} 为负，不满足非负约束", v))
+                } else {
+                    Ok(())
+                }
+            }
+            DType::Null => Ok(()),
+            other => Err(format!("nonneg 校验不适用于类型 {}", other.type_name())),
+        }
     }
 }
 
@@ -304,5 +343,48 @@ mod tests {
         assert_eq!(parse_range("[1,100]").unwrap(), (1.0, 100.0));
         assert!(parse_range("[100,1]").is_err());
         assert!(parse_range("abc").is_err());
+    }
+
+    #[test]
+    fn non_negative_validator() {
+        let v = NonNegativeValidator;
+        let ti = TypeInfo {
+            kind: TypeKind::I32,
+            nullable: false,
+            tags: [("nonneg".to_string(), "true".to_string())]
+                .into_iter()
+                .collect(),
+        };
+
+        assert_eq!(
+            v.validate(&DType::Int(-1), &ti).unwrap_err(),
+            "值 -1 为负，不满足非负约束"
+        );
+        assert!(v.validate(&DType::Int(0), &ti).is_ok());
+        assert!(v.validate(&DType::Int(5), &ti).is_ok());
+        assert_eq!(
+            v.validate(&DType::Float(-0.5), &ti).unwrap_err(),
+            "值 -0.5 为负，不满足非负约束"
+        );
+        assert!(v.validate(&DType::UInt(1), &ti).is_ok());
+        assert!(v.validate(&DType::Null, &ti).is_ok());
+
+        let err = v.validate(&DType::Str("x".to_string()), &ti).unwrap_err();
+        assert!(err.contains("nonneg 校验不适用于类型"));
+
+        let ti_without_tag = TypeInfo::new(TypeKind::I32);
+        assert!(v.validate(&DType::Int(-1), &ti_without_tag).is_ok());
+        assert!(v
+            .validate(&DType::Str("x".to_string()), &ti_without_tag)
+            .is_ok());
+    }
+
+    #[test]
+    fn defaults_include_non_negative_validator() {
+        let registry = ValidatorRegistry::with_defaults();
+        assert!(registry
+            .field_validators
+            .iter()
+            .any(|v| v.name() == "nonneg"));
     }
 }
