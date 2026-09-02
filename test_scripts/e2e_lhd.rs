@@ -10,6 +10,7 @@
 //!   G. schema 漂移     —— fields 错位=硬错误/指纹不匹配=警告/逐行错误收集
 //!   H. 确定性保存+性能  —— 幂等往返/主键乱序重排/list 顺序保留/10万行加载性能
 //!   I. 严格语法          —— k=v only/引号规则/空格过滤
+//!   J. flag 枚举组合    —— 定义端/数据端 A|B 位或、非 flag 拒绝、未知项报错
 //!
 //! 输出：终端 PASS/FAIL 明细 + JSON 报告（test_scripts/report_lhd.json）。
 
@@ -94,7 +95,7 @@ fn equip_table() -> DefTable {
 fn header_ok() -> String {
     let sym = build_symtab();
     format!(
-        "## format=lhd\n## version=1\n## table=TbEquip\n## record=game.EquipCfg\n## fields=id|name|quality|atk|tags|attr\n## order=id\n## schema={}\n",
+        "## format=lhd\n## version=1\n## table=TbEquip\n## record=game.EquipCfg\n## fields=id;name;quality;atk;tags;attr\n## order=id\n## schema={}\n",
         schema_fingerprint(&equip_table(), &sym)
     )
 }
@@ -107,7 +108,7 @@ fn scenario_header() {
     println!("\n=== A. 头部指令 ===");
     let sym = build_symtab();
     let doc = format!(
-        "{}\n{{1|\"铁剑\"|Green|10|[\"武器\"]|{{锐利=5}}}}",
+        "{}\n{{1;\"铁剑\";Green;10;[\"武器\"];{{锐利=5}}}}",
         header_ok()
     );
     let r = load_lhd_from_str(&doc, &equip_table(), &sym).unwrap();
@@ -116,7 +117,7 @@ fn scenario_header() {
 
     // 自定义元数据 + 未知指令容忍
     let doc2 = format!(
-        "## format=lhd\n## version=1\n## table=TbEquip\n## record=game.EquipCfg\n## fields=id|name|quality|atk|tags|attr\n## order=id\n## @author lyra\n## future=xyz\n\n{{1|\"a\"|Green|1|[]|{{}}}}",
+        "## format=lhd\n## version=1\n## table=TbEquip\n## record=game.EquipCfg\n## fields=id;name;quality;atk;tags;attr\n## order=id\n## @author lyra\n## future=xyz\n\n{{1;\"a\";Green;1;[];{{}}}}",
     );
     let r2 = load_lhd_from_str(&doc2, &equip_table(), &sym).unwrap();
     check("A", "自定义 @元数据与未知指令容忍", r2.data.len() == 1 && r2.header.custom.len() == 1,
@@ -136,7 +137,7 @@ fn scenario_rows() {
     println!("\n=== B. 行加载 ===");
     let sym = build_symtab();
     let doc = format!(
-        "{}\n// 全类型行\n{{1001|\"魔典\"|Purple|15|[\"武器\",\"法器\"]|{{强化=9,诅咒=2}}}}\n{{1002|\"空容器\"|White|0|[]|{{}}}}",
+        "{}\n// 全类型行\n{{1001;\"魔典\";Purple;15;[\"武器\",\"法器\"];{{强化=9,诅咒=2}}}}\n{{1002;\"空容器\";White;0;[];{{}}}}",
         header_ok()
     );
     let r = load_lhd_from_str(&doc, &equip_table(), &sym).unwrap();
@@ -162,14 +163,14 @@ fn scenario_rows() {
         "空容器解析失败");
 
     // 数字格式：0x / 下划线 / 负数
-    let doc2 = format!("{}\n{{0x10|\"甲\"|Green|1_000|[]|{{}}}}", header_ok());
+    let doc2 = format!("{}\n{{0x10;\"甲\";Green;1_000;[];{{}}}}", header_ok());
     let r2 = load_lhd_from_str(&doc2, &equip_table(), &sym).unwrap();
     check("B", "0x/下划线整数（0x10=16, 1_000=1000）",
         matches!(&r2.data.records[0].data[0], DType::Int(16)) && matches!(&r2.data.records[0].data[3], DType::Int(1000)),
         &format!("{:?}", r2.data.records.get(0).map(|r| r.data.clone())));
 
     // 类型错误逐行收集
-    let doc3 = format!("{}\n{{1|\"a\"|Green|10|[]|{{}}}}\n{{2|\"b\"|Green|\"不是数字\"|[]|{{}}}}\n{{3|\"c\"|Rainbow|10|[]|{{}}}}", header_ok());
+    let doc3 = format!("{}\n{{1;\"a\";Green;10;[];{{}}}}\n{{2;\"b\";Green;\"不是数字\";[];{{}}}}\n{{3;\"c\";Rainbow;10;[];{{}}}}", header_ok());
     let r3 = load_lhd_from_str(&doc3, &equip_table(), &sym).unwrap();
     check("B", "逐行错误收集（好行保留+2条错误）",
         r3.data.len() == 1 && r3.diagnostics.iter().filter(|d| d.is_error()).count() >= 2,
@@ -186,7 +187,7 @@ fn scenario_disabled() {
     println!("\n=== C. 停用行 ===");
     let sym = build_symtab();
     let doc = format!(
-        "{}\n{{1|\"铁剑\"|Green|10|[]|{{}}}}\n:{{2|\"旧木盾\"|White|3|[]|{{}}}} // 已停用\n:{{3|\"布甲\"|Blue|0|[]|{{}}}} @tag(removed)\n{{4|\"紫金冠\"|Purple|0|[]|{{}}}}",
+        "{}\n{{1;\"铁剑\";Green;10;[];{{}}}}\n:{{2;\"旧木盾\";White;3;[];{{}}}} // 已停用\n:{{3;\"布甲\";Blue;0;[];{{}}}} @tag(removed)\n{{4;\"紫金冠\";Purple;0;[];{{}}}}",
         header_ok()
     );
     let r = load_lhd_from_str(&doc, &equip_table(), &sym).unwrap();
@@ -214,7 +215,7 @@ fn scenario_tags() {
     println!("\n=== D. 数据标签 ===");
     let sym = build_symtab();
     let doc = format!(
-        "{}\n{{1|\"a\"|Green|1|[]|{{}}}} @tag(dev,release)\n{{2|\"b\"|Green|1|[]|{{}}}} @tag(stage=alpha)\n{{3|\"c\"|Green|1|[]|{{}}}}",
+        "{}\n{{1;\"a\";Green;1;[];{{}}}} @tag(dev,release)\n{{2;\"b\";Green;1;[];{{}}}} @tag(stage=alpha)\n{{3;\"c\";Green;1;[];{{}}}}",
         header_ok()
     );
     let r = load_lhd_from_str(&doc, &equip_table(), &sym).unwrap();
@@ -228,7 +229,7 @@ fn scenario_tags() {
 
     // 字符串值内的 @tag( 不是行标签（在引号内）
     let doc2 = format!(
-        "{}\n{{1|\"价格@tag(x)见商店\"|Green|1|[]|{{}}}}",
+        "{}\n{{1;\"价格@tag(x)见商店\";Green;1;[];{{}}}}",
         header_ok()
     );
     let r2 = load_lhd_from_str(&doc2, &equip_table(), &sym).unwrap();
@@ -246,7 +247,7 @@ fn scenario_comments() {
     println!("\n=== E. 注释 ===");
     let sym = build_symtab();
     let doc = format!(
-        "{}\n// 整行注释：装备表 v2\n{{1|\"url含//斜杠\"|Green|1|[]|{{}}}} // 行尾注释\n{{2|\"b\"|Green|1|[]|{{}}}}",
+        "{}\n// 整行注释：装备表 v2\n{{1;\"url含//斜杠\";Green;1;[];{{}}}} // 行尾注释\n{{2;\"b\";Green;1;[];{{}}}}",
         header_ok()
     );
     let r = load_lhd_from_str(&doc, &equip_table(), &sym).unwrap();
@@ -274,11 +275,11 @@ fn scenario_polymorphic() {
     };
     // 多态表：record=EquipCfg（父），子类 WeaponCfg 多一个 range 字段
     let head = format!(
-        "## format=lhd\n## version=1\n## table=TbEquip\n## record=game.EquipCfg\n## fields=id|name|quality|atk|tags|attr\n## order=id\n## schema={}\n",
+        "## format=lhd\n## version=1\n## table=TbEquip\n## record=game.EquipCfg\n## fields=id;name;quality;atk;tags;attr\n## order=id\n## schema={}\n",
         schema_fingerprint(&table, &sym)
     );
     let doc = format!(
-        "{}\n@type(game.WeaponCfg){{1|\"弓\"|Green|10|[]|{{}}|8}}\n{{2|\"帽\"|White|0|[]|{{}}}}",
+        "{}\n@type(game.WeaponCfg){{1;\"弓\";Green;10;[];{{}};8}}\n{{2;\"帽\";White;0;[];{{}}}}",
         head
     );
     let r = load_lhd_from_str(&doc, &table, &sym).unwrap();
@@ -289,7 +290,7 @@ fn scenario_polymorphic() {
         r.data.records[1].bean.as_deref() == Some("game.EquipCfg"), "");
 
     // @type 缺闭合括号 → 行级错误
-    let doc2 = format!("{}\n@type(game.WeaponCfg{{1|\"x\"|Green|1|[]|{{}}}}", head);
+    let doc2 = format!("{}\n@type(game.WeaponCfg{{1|\"x\";Green;1;[];{{}}}}", head);
     let r2 = load_lhd_from_str(&doc2, &table, &sym).unwrap();
     check("F", "@type 缺 ) 报行级错误", r2.diagnostics.iter().any(|d| d.is_error() && d.message.contains("@type")),
         &format!("{:?}", r2.diagnostics));
@@ -303,21 +304,21 @@ fn scenario_drift() {
     println!("\n=== G. schema 漂移 ===");
     let sym = build_symtab();
     // 1. fields 错位 → 硬错误 + 不加载数据
-    let doc = header_ok().replace("id|name|quality|atk|tags|attr", "id|name|quality|atk|tags|attrs");
-    let doc = format!("{}\n{{1|\"a\"|Green|1|[]|{{}}}}", doc);
+    let doc = header_ok().replace("id;name;quality;atk;tags;attr", "id;name;quality;atk;tags;attrs");
+    let doc = format!("{}\n{{1;\"a\";Green;1;[];{{}}}}", doc);
     let r = load_lhd_from_str(&doc, &equip_table(), &sym).unwrap();
     check("G", "fields 错位 = 硬错误", r.diagnostics.iter().any(|d| d.is_error()), &format!("{:?}", r.diagnostics));
     check("G", "fields 错位不加载数据（防静默错位）", r.data.is_empty(), &format!("{}", r.data.len()));
 
     // 2. 字段数不同 → 硬错误
-    let doc2 = header_ok().replace("id|name|quality|atk|tags|attr", "id|name|quality");
-    let doc2 = format!("{}\n{{1|\"a\"|Green}}", doc2);
+    let doc2 = header_ok().replace("id;name;quality;atk;tags;attr", "id;name;quality");
+    let doc2 = format!("{}\n{{1;\"a\"|Green}}", doc2);
     let r2 = load_lhd_from_str(&doc2, &equip_table(), &sym).unwrap();
     check("G", "字段数不一致 = 硬错误", r2.diagnostics.iter().any(|d| d.is_error() && d.message.contains("列")), &format!("{:?}", r2.diagnostics));
 
     // 3. 指纹不匹配 → 警告不阻断
     let doc3 = header_ok().replace(&format!("## schema={}", schema_fingerprint(&equip_table(), &sym)), "## schema=deadbeef");
-    let doc3 = format!("{}\n{{1|\"a\"|Green|1|[]|{{}}}}", doc3);
+    let doc3 = format!("{}\n{{1;\"a\";Green;1;[];{{}}}}", doc3);
     let r3 = load_lhd_from_str(&doc3, &equip_table(), &sym).unwrap();
     check("G", "指纹不匹配 = 警告且数据正常加载",
         r3.data.len() == 1 && r3.diagnostics.iter().any(|d| !d.is_error() && d.message.contains("指纹")),
@@ -330,7 +331,7 @@ fn scenario_drift() {
     )
     .unwrap();
     let _ = sym2.update(&equip_v2);
-    let doc4 = format!("{}\n{{1|\"a\"|Green|1|[]|{{}}}}", header_ok());
+    let doc4 = format!("{}\n{{1;\"a\";Green;1;[];{{}}}}", header_ok());
     let r4 = load_lhd_from_str(&doc4, &equip_table(), &sym2).unwrap();
     check("G", "schema 加字段后旧数据文件报错", r4.diagnostics.iter().any(|d| d.is_error()),
         &format!("{:?}", r4.diagnostics));
@@ -352,20 +353,20 @@ fn scenario_strict() {
 
     // 1. 字典只允许 k=v：k:v 报错
     let doc = format!("{}
-{{1|\"a\"|Green|1|[]|{{k:5}}}}", head);
+{{1;\"a\";Green;1;[];{{k:5}}}}", head);
     let r = load_lhd_from_str(&doc, &equip_table(), &sym).unwrap();
     check("I", "字典 k:v 报错（只允许 k=v）",
         r.diagnostics.iter().any(|d| d.is_error() && d.message.contains("k=v")),
         &format!("{:?}", r.diagnostics));
     // k=v 裸键合法
     let doc = format!("{}
-{{1|\"a\"|Green|1|[]|{{k=5}}}}", head);
+{{1;\"a\";Green;1;[];{{k=5}}}}", head);
     let r = load_lhd_from_str(&doc, &equip_table(), &sym).unwrap();
     check("I", "字典 k=v 裸键合法", r.data.len() == 1, &format!("{:?}", r.diagnostics));
 
     // 2. 数字不能带引号
     let doc = format!("{}
-{{\"1\"|\"a\"|Green|1|[]|{{}}}}", head);
+{{\"1\";\"a\";Green;1;[];{{}}}}", head);
     let r = load_lhd_from_str(&doc, &equip_table(), &sym).unwrap();
     check("I", "数字带引号报错（含修复提示）",
         r.diagnostics.iter().any(|d| d.is_error() && d.message.contains("数字不能用双引号")),
@@ -373,7 +374,7 @@ fn scenario_strict() {
 
     // 3. 枚举不能带引号
     let doc = format!("{}
-{{1|\"a\"|\"Green\"|1|[]|{{}}}}", head);
+{{1;\"a\";\"Green\";1;[];{{}}}}", head);
     let r = load_lhd_from_str(&doc, &equip_table(), &sym).unwrap();
     check("I", "枚举带引号报错",
         r.diagnostics.iter().any(|d| d.is_error() && d.message.contains("枚举不能用双引号")),
@@ -381,7 +382,7 @@ fn scenario_strict() {
 
     // 4. 字符串必须带引号
     let doc = format!("{}
-{{1|裸字符串|Green|1|[]|{{}}}}", head);
+{{1;裸字符串;Green;1;[];{{}}}}", head);
     let r = load_lhd_from_str(&doc, &equip_table(), &sym).unwrap();
     check("I", "裸字符串报错",
         r.diagnostics.iter().any(|d| d.is_error() && d.message.contains("双引号")),
@@ -389,7 +390,7 @@ fn scenario_strict() {
 
     // 5. 首尾空格自动过滤（字段间多余空白）
     let doc = format!("{}
-{{  1  |  \"铁剑\"  |  Green  |  10  |  []  |  {{}}  }}", head);
+{{  1  ;  \"铁剑\"  ;  Green  ;  10  ;  []  ;  {{}}  }}", head);
     let r = load_lhd_from_str(&doc, &equip_table(), &sym).unwrap();
     check("I", "首尾空格自动过滤",
         r.data.len() == 1 && matches!(&r.data.records[0].data[0], DType::Int(1))
@@ -413,20 +414,89 @@ fn scenario_strict() {
 ## version=1
 ## table=TbFlag
 ## record=game.FlagCfg
-## fields=id|on
+## fields=id;on
 ## order=id
 ## schema={}
 ",
         schema_fingerprint(&t2, &sym2)
     );
     let doc = format!("{}
-{{1|true}}
-{{2|\"false\"}}", head2);
+{{1;true}}
+{{2;\"false\"}}", head2);
     let r = load_lhd_from_str(&doc, &t2, &sym2).unwrap();
     check("I", "bool 裸 true 合法 / 引号 false 报错",
         r.data.len() == 1 && matches!(&r.data.records[0].data[1], DType::Bool(true))
             && r.diagnostics.iter().any(|d| d.is_error() && d.message.contains("bool 不能用双引号")),
         &format!("data={} diags={:?}", r.data.len(), r.diagnostics));
+}
+
+// ============================================================================
+// J. flag 枚举组合（| 位或，分隔符已让位给 ;）
+// ============================================================================
+
+fn scenario_flag() {
+    println!("\n=== J. flag 枚举组合 ===");
+    let mut sym = build_symtab();
+    let enm: RawDef = serde_json::from_str(
+        r#"{"Enum":{"name":"Element","is_flag":true,"items":[{"name":"None","value":"0"},{"name":"Fire","value":"1"},{"name":"Ice","value":"2"},{"name":"Wind","value":"4"},{"name":"FireIce","value":"Fire|Ice"},{"name":"All","value":"Fire|Ice|0x4"}]}}"#,
+    )
+    .unwrap();
+    let _ = sym.register(&enm);
+    let bean: RawDef = serde_json::from_str(
+        r#"{"Bean":{"name":"SkillCfg","module":"game","fields":[{"name":"id","type":"int"},{"name":"name","type":"string"},{"name":"element","type":"Element"}]}}"#,
+    )
+    .unwrap();
+    let _ = sym.register(&bean);
+    let t = DefTable {
+        name: "game.TbSkill".into(),
+        value_type: "game.SkillCfg".into(),
+        index: vec![TableIndex { columns: vec!["id".into()] }],
+        ..equip_table()
+    };
+    let head = format!(
+        "## format=lhd\n## version=1\n## table=TbSkill\n## record=game.SkillCfg\n## fields=id;name;element\n## order=id\n## schema={}\n",
+        schema_fingerprint(&t, &sym)
+    );
+
+    // 1. 定义端组合项值检查（DataContext）
+
+    // 用 DataContext 检查定义端组合项的值
+    use liuhuo_core::value::DataContext as _;
+    let v_fire_ice = sym.enum_value("Element", "FireIce");
+    check("J", "定义端组合项 FireIce = Fire|Ice = 3", v_fire_ice == Some(3),
+        &format!("{:?}", v_fire_ice));
+    let v_all = sym.enum_value("Element", "All");
+    check("J", "定义端混合组合 All = Fire|Ice|0x4 = 7", v_all == Some(7),
+        &format!("{:?}", v_all));
+
+    // 2. 数据端组合值：Fire|Ice 直接写在字段里（分隔符已是 ;，无冲突）
+    let doc = format!(
+        "{}\n{{1;\"冰火两重天\";Fire|Ice}}\n{{2;\"风暴\";Fire|Ice|Wind}}\n{{3;\"单火\";Fire}}",
+        head
+    );
+    let r = load_lhd_from_str(&doc, &t, &sym).unwrap();
+    check("J", "数据端组合 Fire|Ice = 3",
+        r.data.len() == 3 && matches!(&r.data.records[0].data[2], DType::Enum(_, 3)),
+        &format!("rows={} diags={:?}", r.data.len(), r.diagnostics));
+    check("J", "数据端三段组合 Fire|Ice|Wind = 7",
+        matches!(&r.data.records[1].data[2], DType::Enum(_, 7)),
+        &format!("{:?}", r.data.records.get(1).map(|x| x.data[2].clone())));
+    check("J", "单项仍正常（Fire = 1）",
+        matches!(&r.data.records[2].data[2], DType::Enum(_, 1)), "");
+
+    // 3. 非 flag 枚举拒绝组合
+    let doc2 = format!("{}\n{{1;\"甲\";Green|Blue}}", header_ok());
+    let r2 = load_lhd_from_str(&doc2, &equip_table(), &sym).unwrap();
+    check("J", "非 flag 枚举组合值报错（Green|Blue 拒绝）",
+        r2.data.is_empty() && r2.diagnostics.iter().any(|d| d.is_error()),
+        &format!("rows={} diags={:?}", r2.data.len(), r2.diagnostics));
+
+    // 4. 未知项组合报错
+    let doc3 = format!("{}\n{{1;\"乙\";Fire|Dark}}", head);
+    let r3 = load_lhd_from_str(&doc3, &t, &sym).unwrap();
+    check("J", "组合含未知项（Fire|Dark）报错",
+        r3.diagnostics.iter().any(|d| d.is_error() && d.message.contains("Dark")),
+        &format!("{:?}", r3.diagnostics));
 }
 
 fn scenario_save_perf(root: &Path) {
@@ -435,7 +505,7 @@ fn scenario_save_perf(root: &Path) {
 
     // 1. 幂等往返
     let doc = format!(
-        "{}\n{{3|\"c\"|Blue|30|[]|{{}}}} @tag(dev)\n{{1|\"a\"|Green|10|[]|{{}}}}\n:{{5|\"e\"|White|50|[]|{{}}}}\n{{2|\"b\"|Green|20|[]|{{}}}}",
+        "{}\n{{3;\"c\";Blue;30;[];{{}}}} @tag(dev)\n{{1;\"a\";Green;10;[];{{}}}}\n:{{5;\"e\";White;50;[];{{}}}}\n{{2;\"b\";Green;20;[];{{}}}}",
         header_ok()
     );
     let r = load_lhd_from_str(&doc, &equip_table(), &sym).unwrap();
@@ -445,7 +515,7 @@ fn scenario_save_perf(root: &Path) {
     check("H", "保存幂等（二次往返字节级一致）", t1 == t2, "t1 != t2");
     let ids: Vec<&str> = t1.lines().filter(|l| l.starts_with("{")).collect();
     check("H", "乱序主键重排为 1,2,3",
-        ids.len() == 3 && ids[0].starts_with("{1|") && ids[1].starts_with("{2|") && ids[2].starts_with("{3|"),
+        ids.len() == 3 && ids[0].starts_with("{1;") && ids[1].starts_with("{2;") && ids[2].starts_with("{3;"),
         &format!("{:?}", ids));
 
     // 2. list 表 order=- 保留人工顺序
@@ -455,17 +525,17 @@ fn scenario_save_perf(root: &Path) {
         ..equip_table()
     };
     let head_l = format!(
-        "## format=lhd\n## version=1\n## table=TbEquipList\n## record=game.EquipCfg\n## fields=id|name|quality|atk|tags|attr\n## order=-\n"
+        "## format=lhd\n## version=1\n## table=TbEquipList\n## record=game.EquipCfg\n## fields=id;name;quality;atk;tags;attr\n## order=-\n"
     );
     let docl = format!(
-        "{}\n{{3|\"c\"|Blue|30|[]|{{}}}}\n{{1|\"a\"|Green|10|[]|{{}}}}\n{{2|\"b\"|Green|20|[]|{{}}}}",
+        "{}\n{{3;\"c\";Blue;30;[];{{}}}}\n{{1;\"a\";Green;10;[];{{}}}}\n{{2;\"b\";Green;20;[];{{}}}}",
         head_l
     );
     let rl = load_lhd_from_str(&docl, &list_table, &sym).unwrap();
     let tl = save_lhd(&list_table, &rl.data, &rl.disabled, &sym, &[]);
     let idsl: Vec<&str> = tl.lines().filter(|l| l.starts_with("{")).collect();
     check("H", "order=- 保留人工顺序（3,1,2 不重排）",
-        idsl.len() == 3 && idsl[0].starts_with("{3|") && idsl[2].starts_with("{2|"),
+        idsl.len() == 3 && idsl[0].starts_with("{3;") && idsl[2].starts_with("{2;"),
         &format!("{:?}", idsl));
 
     // 3. 自定义元数据保存
@@ -478,7 +548,7 @@ fn scenario_save_perf(root: &Path) {
     big.push_str(&header_ok());
     big.push('\n');
     for i in 0..n {
-        big.push_str(&format!("{{{0}|\"item_{0}\"|Green|{0}|[\"t{0}\"]|{{k={0}}}}}\n", i));
+        big.push_str(&format!("{{{0};\"item_{0}\";Green;{0};[\"t{0}\"];{{k={0}}}}}\n", i));
     }
     let big_path = root.join("TbBig.lhd");
     std::fs::write(&big_path, &big).unwrap();
@@ -519,6 +589,7 @@ fn main() {
     scenario_polymorphic();
     scenario_drift();
     scenario_strict();
+    scenario_flag();
     scenario_save_perf(&root);
     let _ = std::fs::remove_dir_all(&root);
 

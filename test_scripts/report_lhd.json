@@ -224,7 +224,7 @@
         },
         {
           "detail": "",
-          "name": "10万行加载（5 MB, 832 ms）",
+          "name": "10万行加载（5 MB, 800 ms）",
           "passed": true
         },
         {
@@ -234,7 +234,7 @@
         },
         {
           "detail": "",
-          "name": "10万行确定性保存（368 ms）",
+          "name": "10万行确定性保存（357 ms）",
           "passed": true
         },
         {
@@ -288,11 +288,53 @@
       "failed": 0,
       "passed": 7,
       "total": 7
+    },
+    "J": {
+      "cases": [
+        {
+          "detail": "",
+          "name": "定义端组合项 FireIce = Fire|Ice = 3",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "定义端混合组合 All = Fire|Ice|0x4 = 7",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "数据端组合 Fire|Ice = 3",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "数据端三段组合 Fire|Ice|Wind = 7",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "单项仍正常（Fire = 1）",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "非 flag 枚举组合值报错（Green|Blue 拒绝）",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "组合含未知项（Fire|Dark）报错",
+          "passed": true
+        }
+      ],
+      "failed": 0,
+      "passed": 7,
+      "total": 7
     }
   },
-  "passed": 45,
+  "passed": 52,
   "suite": ".lhd 内置数据格式端到端测试",
   "tool": "liuhuo_core",
-  "total": 45,
+  "total": 52,
   "verdict": "PASS"
 }
