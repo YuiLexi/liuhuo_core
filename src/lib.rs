@@ -56,6 +56,6 @@ pub use types::{
 };
 pub use validate::{
     IDataValidator, ITableValidator, NonNegativeValidator, RangeValidator,
-    SingleRecordValidator, UniqueKeyValidator, ValidatorRegistry, validate_table,
+    SingleRecordValidator, SizeValidator, UniqueKeyValidator, ValidatorRegistry, validate_table,
 };
 pub use value::{DType, DataContext, Record, TableData, update_cell};

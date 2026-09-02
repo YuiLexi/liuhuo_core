@@ -42,6 +42,7 @@ impl ValidatorRegistry {
         let mut r = Self::new();
         r.register_field(RangeValidator);
         r.register_field(NonNegativeValidator);
+        r.register_field(SizeValidator);
         r.register_table(UniqueKeyValidator);
         r.register_table(SingleRecordValidator);
         r
@@ -128,6 +129,35 @@ impl IDataValidator for NonNegativeValidator {
             DType::Null => Ok(()),
             other => Err(format!("nonneg 校验不适用于类型 {}", other.type_name())),
         }
+    }
+}
+
+/// 容器大小校验（`size=[min,max]` 标签）。
+#[derive(Debug, Default)]
+pub struct SizeValidator;
+
+impl IDataValidator for SizeValidator {
+    fn name(&self) -> &str {
+        "size"
+    }
+
+    fn validate(&self, value: &DType, type_info: &TypeInfo) -> Result<(), String> {
+        let Some(size) = type_info.tags.get("size") else {
+            return Ok(());
+        };
+        let (min, max) = parse_int_range(size)?;
+        let len = match value {
+            DType::List(v) | DType::Set(v) | DType::Array(v) => v.len(),
+            DType::Map(entries) => entries.len(),
+            DType::Null => return Ok(()),
+            other => {
+                return Err(format!("size 校验不适用于类型 {}", other.type_name()));
+            }
+        };
+        if (len as i64) < min || (len as i64) > max {
+            return Err(format!("容器大小 {} 超出范围 [{}, {}]", len, min, max));
+        }
+        Ok(())
     }
 }
 
@@ -299,6 +329,34 @@ fn parse_range(s: &str) -> Result<(f64, f64), String> {
     Ok((min, max))
 }
 
+/// 解析 `[min,max]` 整数闭区间，用于容器大小校验。
+fn parse_int_range(s: &str) -> Result<(i64, i64), String> {
+    let s = s.trim();
+    let inner = s
+        .strip_prefix('[')
+        .and_then(|x| x.strip_suffix(']'))
+        .ok_or_else(|| format!("size 格式应为 [min,max]，实际 '{}'", s))?;
+    let parts: Vec<&str> = inner.split(',').collect();
+    if parts.len() != 2 {
+        return Err(format!("size 应含一个逗号: '{}'", s));
+    }
+    let min = parts[0]
+        .trim()
+        .parse::<i64>()
+        .map_err(|_| format!("非法下界 '{}'，应为非负整数", parts[0]))?;
+    let max = parts[1]
+        .trim()
+        .parse::<i64>()
+        .map_err(|_| format!("非法上界 '{}'，应为非负整数", parts[1]))?;
+    if min < 0 || max < 0 {
+        return Err("size 上下界应为非负整数".to_string());
+    }
+    if min > max {
+        return Err(format!("下界 {} 大于上界 {}", min, max));
+    }
+    Ok((min, max))
+}
+
 /// 值 → 可比较的字符串 key（用于唯一性判断 / 外键索引）。
 pub fn key_string(v: &DType) -> String {
     match v {
@@ -386,5 +444,53 @@ mod tests {
             .field_validators
             .iter()
             .any(|v| v.name() == "nonneg"));
+    }
+
+    #[test]
+    fn size_validator() {
+        let v = SizeValidator;
+        let mut ti = TypeInfo {
+            kind: TypeKind::List(Box::new(TypeInfo::new(TypeKind::I32))),
+            nullable: false,
+            tags: [("size".to_string(), "[1,3]".to_string())]
+                .into_iter()
+                .collect(),
+        };
+        let list = DType::List(vec![
+            DType::Int(1),
+            DType::Int(2),
+            DType::Int(3),
+        ]);
+        assert!(v.validate(&list, &ti).is_ok());
+
+        ti.tags.insert("size".to_string(), "[4,5]".to_string());
+        assert_eq!(
+            v.validate(&list, &ti).unwrap_err(),
+            "容器大小 3 超出范围 [4, 5]"
+        );
+
+        ti.kind = TypeKind::Map(
+            Box::new(TypeInfo::new(TypeKind::Str)),
+            Box::new(TypeInfo::new(TypeKind::I32)),
+        );
+        ti.tags.insert("size".to_string(), "[2,2]".to_string());
+        let map = DType::Map(vec![
+            (DType::Str("a".to_string()), DType::Int(1)),
+            (DType::Str("b".to_string()), DType::Int(2)),
+        ]);
+        assert!(v.validate(&map, &ti).is_ok());
+
+        assert!(v.validate(&DType::Null, &ti).is_ok());
+
+        ti.tags.remove("size");
+        assert!(v.validate(&DType::Str("x".to_string()), &ti).is_ok());
+        ti.tags.insert("size".to_string(), "[0,1]".to_string());
+        assert_eq!(
+            v.validate(&DType::Str("x".to_string()), &ti).unwrap_err(),
+            "size 校验不适用于类型 string"
+        );
+
+        ti.tags.insert("size".to_string(), "[3,1]".to_string());
+        assert!(v.validate(&list, &ti).is_err());
     }
 }
