@@ -309,45 +309,6 @@ fn extract_line_tags(line: &str) -> (&str, HashMap<String, String>) {
 // ============================================================================
 
 
-/// .lhd 的 map 条目分隔符是 `k=v`（设计文档 §4），共享 parse_value 用 `k:v`。
-/// 加载前把花括号块内的裸 `=` 归一化为 `:`（引号态除外；bean 的 {v|v} 不含裸 =）。
-fn normalize_map_eq(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut depth = 0i32;
-    let mut in_str = false;
-    let mut chars = s.chars().peekable();
-    while let Some(c) = chars.next() {
-        if in_str {
-            out.push(c);
-            if c == '\\' {
-                if let Some(next) = chars.next() {
-                    out.push(next);
-                }
-            } else if c == '"' {
-                in_str = false;
-            }
-            continue;
-        }
-        match c {
-            '"' => {
-                in_str = true;
-                out.push(c);
-            }
-            '{' | '[' | '(' => {
-                depth += 1;
-                out.push(c);
-            }
-            '}' | ']' | ')' => {
-                depth -= 1;
-                out.push(c);
-            }
-            '=' if depth >= 1 => out.push(':'),
-            _ => out.push(c),
-        }
-    }
-    out
-}
-
 /// `.lhd` 加载结果：数据 + 逐行诊断（不快速失败）+ 停用行 + 头部。
 pub struct LhdLoadResult {
     pub data: TableData,
@@ -448,7 +409,7 @@ pub fn load_lhd_from_str(
             },
             None => ti_record.clone(),
         };
-        match parse_value(&normalize_map_eq(&pl.body), &ti, ctx) {
+        match parse_value(&pl.body, &ti, ctx) {
             Ok(DType::Bean(actual, vals)) => {
                 let mut rec = Record::with_capacity(vals.len());
                 rec.bean = Some(actual);
@@ -495,7 +456,7 @@ pub fn lhd_serialize(v: &DType) -> String {
                 .collect::<Vec<_>>()
                 .join(",")
         ),
-        DType::Bean(name, vals) => format!(
+        DType::Bean(_name, vals) => format!(
             "{{{}}}",
             vals.iter().map(lhd_serialize).collect::<Vec<_>>().join("|")
         ),
@@ -824,6 +785,61 @@ mod tests {
             "主键排序: {:?}",
             ids
         );
+    }
+
+    /// 严格语法专用 ctx：bool/enum/int/str/map 单值解析。
+    struct StrictCtx;
+    impl DataContext for StrictCtx {
+        fn enum_value(&self, _: &str, v: &str) -> Option<i64> {
+            match v { "White" => Some(0), "Green" => Some(1), _ => None }
+        }
+        fn bean_fields(&self, _: &str) -> Option<Vec<String>> { None }
+        fn bean_hierarchy_fields(&self, _: &str) -> Option<Vec<(String, TypeInfo)>> { None }
+    }
+
+    #[test]
+    fn strict_syntax_rejections() {
+        let c = StrictCtx;
+        let ti_int = TypeInfo::new(TypeKind::I32);
+        let ti_str = TypeInfo::new(TypeKind::Str);
+        let ti_bool = TypeInfo::new(TypeKind::Bool);
+        let ti_enum = TypeInfo::new(TypeKind::Enum("Quality".into()));
+        // 1. 数字不能带引号
+        let e = parse_value("\"123\"", &ti_int, &c).unwrap_err();
+        assert!(e.contains("数字不能用双引号"), "{}", e);
+        // 2. bool 不能带引号
+        let e = parse_value("\"true\"", &ti_bool, &c).unwrap_err();
+        assert!(e.contains("bool 不能用双引号"), "{}", e);
+        // 3. 枚举不能带引号
+        let e = parse_value("\"Green\"", &ti_enum, &c).unwrap_err();
+        assert!(e.contains("枚举不能用双引号"), "{}", e);
+        // 4. 字符串必须带引号
+        let e = parse_value("裸字符串", &ti_str, &c).unwrap_err();
+        assert!(e.contains("必须以双引号"), "{}", e);
+        // 5. 合法裸形式
+        assert!(parse_value("123", &ti_int, &c).is_ok());
+        assert!(parse_value("true", &ti_bool, &c).is_ok());
+        assert!(parse_value("Green", &ti_enum, &c).is_ok());
+        assert!(parse_value("\"带 空格\"", &ti_str, &c).is_ok());
+        // 6. 首尾空格自动过滤
+        assert!(matches!(parse_value("  42  ", &ti_int, &c), Ok(DType::Int(42))));
+        assert!(matches!(parse_value("  true  ", &ti_bool, &c), Ok(DType::Bool(true))));
+        assert!(matches!(parse_value(" \"x\" ", &ti_str, &c), Ok(DType::Str(_))));
+    }
+
+    #[test]
+    fn map_strict_k_eq_v() {
+        // 字典只允许 k=v；k:v 报错
+        let c = StrictCtx;
+        let ti_map = TypeInfo::new(TypeKind::Map(
+            Box::new(TypeInfo::new(TypeKind::Str)),
+            Box::new(TypeInfo::new(TypeKind::I32)),
+        ));
+        assert!(parse_value("{a=1}", &ti_map, &c).is_ok(), "k=v 应合法");
+        assert!(parse_value("{\"a\"=1}", &ti_map, &c).is_ok(), "带引号键应合法");
+        let e = parse_value("{a:1}", &ti_map, &c).unwrap_err();
+        assert!(e.contains("k=v"), "{}", e);
+        assert!(parse_value("{}", &ti_map, &c).is_ok(), "空字典合法");
     }
 
     #[test]
