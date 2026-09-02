@@ -1,0 +1,6 @@
+# 测试脚本与产物不入库 target
+target/
+
+# RustRover
+.idea/
+test_scripts/*.exe
