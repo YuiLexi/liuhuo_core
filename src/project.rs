@@ -444,6 +444,7 @@ pub fn compile_project(dir: &Path, _config: &LiuHuoConfig) -> ProjectCompileOutc
         let mut loader_registry = DataLoaderRegistry::new();
         loader_registry.register(JsonDataLoader);
         loader_registry.register(TextDataLoader);
+        loader_registry.register(crate::lhd::LhdDataLoader);
         let validator_registry = ValidatorRegistry::with_defaults();
 
         // 第一阶段：加载所有表数据
