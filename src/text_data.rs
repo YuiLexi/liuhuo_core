@@ -236,6 +236,17 @@ pub fn parse_value(s: &str, ti: &TypeInfo, ctx: &dyn DataContext) -> Result<DTyp
                         if k.is_empty() || v.is_empty() {
                             return Err(format!("Map 条目需 k:v 格式: '{}'", pair));
                         }
+                        // 字符串键允许裸形式（.lhd 的 {k=v} 语法）：自动补引号
+                        let k_owned;
+                        let k_ref = k;
+                        let k = if matches!(k_ti.kind, TypeKind::Str | TypeKind::Text)
+                            && !k_ref.trim_start().starts_with('"')
+                        {
+                            k_owned = format!("\"{}\"", k_ref.trim());
+                            k_owned.as_str()
+                        } else {
+                            k_ref
+                        };
                         Ok((parse_value(k, k_ti, ctx)?, parse_value(v, v_ti, ctx)?))
                     })
                     .collect::<Result<Vec<_>, String>>()?
