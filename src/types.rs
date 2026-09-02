@@ -19,6 +19,7 @@ use std::collections::HashMap;
 pub enum TypeRef {
     Enum,
     Bean,
+    Record,
 }
 
 /// 类型解析器：把 full_name 解析为 enum / bean，或 `None`（未定义）。
@@ -34,6 +35,12 @@ pub trait TypeResolver {
     /// Bean 的层级字段（含父类，从根到自身），完整字段名 + 类型。
     /// 用于数据加载（解码 JSON 记录时需要知道每个字段的类型）。
     fn bean_hierarchy_fields(&self, full_name: &str) -> Option<Vec<(String, TypeInfo)>> {
+        let _ = full_name;
+        None
+    }
+
+    /// Record 的索引定义（无继承，字段自身声明）。
+    fn record_indexes(&self, full_name: &str) -> Option<Vec<crate::defs::TableIndex>> {
         let _ = full_name;
         None
     }
@@ -302,7 +309,7 @@ fn extract_trailing_paren_tags(s: &str) -> Result<(&str, HashMap<String, String>
     Ok((s, HashMap::new()))
 }
 
-/// 解析 `k=v,k2=v2` 标签串。
+/// 解析 `k=v,k2=v2` 标签串（裸标签 `k` 等价于 `k=true`）。
 fn parse_tags(s: &str) -> Result<HashMap<String, String>, String> {
     let mut tags = HashMap::new();
     let s = s.trim();
@@ -314,11 +321,13 @@ fn parse_tags(s: &str) -> Result<HashMap<String, String>, String> {
         if part.is_empty() {
             continue;
         }
-        let eq = part
-            .find('=')
-            .ok_or_else(|| format!("标签 '{}' 缺少 '='", part))?;
-        let k = part[..eq].trim().to_string();
-        let v = part[eq + 1..].trim().to_string();
+        let (k, v) = match part.find('=') {
+            Some(eq) => (
+                part[..eq].trim().to_string(),
+                part[eq + 1..].trim().to_string(),
+            ),
+            None => (part.to_string(), "true".to_string()),
+        };
         if k.is_empty() {
             return Err(format!("标签键不能为空: '{}'", s));
         }
@@ -399,6 +408,7 @@ fn parse_type_expr(s: &str, resolver: &dyn TypeResolver) -> Result<TypeKind, Str
             return Ok(match resolver.resolve(s) {
                 Some(TypeRef::Enum) => TypeKind::Enum(s.to_string()),
                 Some(TypeRef::Bean) => TypeKind::Bean(s.to_string()),
+                Some(TypeRef::Record) => TypeKind::Bean(s.to_string()),
                 None => TypeKind::Unresolved(s.to_string()),
             });
         }
@@ -501,6 +511,21 @@ mod tests {
         // 容器上的标签
         let ti = parse_type("list<int>(range=[1,3])", &r).unwrap();
         assert_eq!(ti.tags.get("range").unwrap(), "[1,3]");
+    }
+
+    #[test]
+    fn parse_bare_and_valued_tags() {
+        let r = EmptyResolver;
+        let ti = parse_type("int(nonneg)", &r).unwrap();
+        assert_eq!(ti.tags.get("nonneg").unwrap(), "true");
+
+        let ti = parse_type("int(nonneg,range=[0,9])", &r).unwrap();
+        assert_eq!(ti.tags.get("nonneg").unwrap(), "true");
+        assert_eq!(ti.tags.get("range").unwrap(), "[0,9]");
+
+        let ti = parse_type("int(a,b=c)", &r).unwrap();
+        assert_eq!(ti.tags.get("a").unwrap(), "true");
+        assert_eq!(ti.tags.get("b").unwrap(), "c");
     }
 
     #[test]

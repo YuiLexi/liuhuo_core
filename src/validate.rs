@@ -7,6 +7,7 @@ use crate::diagnostic::Diagnostic;
 use crate::types::{TypeInfo, TypeKind};
 use crate::value::{DType, TableData};
 use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
 /// 字段级校验器（对单个字段值校验）。
 pub trait IDataValidator: std::fmt::Debug + Send + Sync {
@@ -37,12 +38,23 @@ impl ValidatorRegistry {
         Self::default()
     }
 
-    /// 注册内置校验器（range / unique-key / single-record）。
+    /// 注册内置校验器（range / nonneg / unique-key / single-record）。
     pub fn with_defaults() -> Self {
         let mut r = Self::new();
         r.register_field(RangeValidator);
+        r.register_field(NonNegativeValidator);
+        r.register_field(SizeValidator);
         r.register_table(UniqueKeyValidator);
         r.register_table(SingleRecordValidator);
+        r
+    }
+
+    /// 注册内置校验器与路径根（`path` 标签）。
+    pub fn with_defaults_and_root(root: Option<&Path>) -> Self {
+        let mut r = Self::with_defaults();
+        r.register_field(PathValidator {
+            root: root.map(Path::to_path_buf),
+        });
         r
     }
 
@@ -89,6 +101,112 @@ impl IDataValidator for RangeValidator {
             ));
         }
         Ok(())
+    }
+}
+
+/// 非负校验（`nonneg` 标签）。
+#[derive(Debug, Default)]
+pub struct NonNegativeValidator;
+
+impl IDataValidator for NonNegativeValidator {
+    fn name(&self) -> &str {
+        "nonneg"
+    }
+
+    fn validate(&self, value: &DType, type_info: &TypeInfo) -> Result<(), String> {
+        let Some(tag) = type_info.tags.get("nonneg") else {
+            return Ok(());
+        };
+        if tag.is_empty() {
+            return Ok(());
+        }
+        match value {
+            DType::Int(v) => {
+                if *v < 0 {
+                    Err(format!("值 {} 为负，不满足非负约束", v))
+                } else {
+                    Ok(())
+                }
+            }
+            DType::UInt(_) => Ok(()),
+            DType::Float(v) => {
+                if *v < 0.0 {
+                    Err(format!("值 {} 为负，不满足非负约束", v))
+                } else {
+                    Ok(())
+                }
+            }
+            DType::Null => Ok(()),
+            other => Err(format!("nonneg 校验不适用于类型 {}", other.type_name())),
+        }
+    }
+}
+
+/// 容器大小校验（`size=[min,max]` 标签）。
+#[derive(Debug, Default)]
+pub struct SizeValidator;
+
+impl IDataValidator for SizeValidator {
+    fn name(&self) -> &str {
+        "size"
+    }
+
+    fn validate(&self, value: &DType, type_info: &TypeInfo) -> Result<(), String> {
+        let Some(size) = type_info.tags.get("size") else {
+            return Ok(());
+        };
+        let (min, max) = parse_int_range(size)?;
+        let len = match value {
+            DType::List(v) | DType::Set(v) | DType::Array(v) => v.len(),
+            DType::Map(entries) => entries.len(),
+            DType::Null => return Ok(()),
+            other => {
+                return Err(format!("size 校验不适用于类型 {}", other.type_name()));
+            }
+        };
+        if (len as i64) < min || (len as i64) > max {
+            return Err(format!("容器大小 {} 超出范围 [{}, {}]", len, min, max));
+        }
+        Ok(())
+    }
+}
+
+/// 路径存在性校验（`path` 标签）。
+#[derive(Debug, Default)]
+pub struct PathValidator {
+    pub root: Option<PathBuf>,
+}
+
+impl IDataValidator for PathValidator {
+    fn name(&self) -> &str {
+        "path"
+    }
+
+    fn validate(&self, value: &DType, type_info: &TypeInfo) -> Result<(), String> {
+        if !type_info.tags.contains_key("path") {
+            return Ok(());
+        }
+        let s = match value {
+            DType::Str(s) | DType::Text(s) => s,
+            DType::Null => return Ok(()),
+            other => {
+                return Err(format!("path 校验不适用于类型 {}", other.type_name()));
+            }
+        };
+        let candidate = Path::new(s);
+        let exists = if candidate.is_absolute() {
+            candidate.exists()
+        } else {
+            match &self.root {
+                Some(root) => root.join(candidate).exists(),
+                None => candidate.exists(),
+            }
+        };
+        if exists {
+            Ok(())
+        } else {
+            Err(format!("路径 '{}' 不存在", s))
+        }
     }
 }
 
@@ -213,26 +331,107 @@ pub fn validate_foreign_keys(
 ) -> Vec<Diagnostic> {
     let mut diags = Vec::new();
     for (fi, (fname, fti)) in fields.iter().enumerate() {
-        if let TypeKind::Ref(target) = &fti.kind {
+        let mut targets = HashSet::new();
+        collect_ref_targets(fti, &mut targets);
+        for target in targets {
             let Some(keys) = key_sets.get(target) else {
                 continue;
             };
             for (ri, record) in data.records.iter().enumerate() {
-                let val = record.data.get(fi).unwrap_or(&DType::Null);
-                if val.is_null() {
-                    continue;
-                }
-                let key = key_string(val);
-                if !keys.contains(&key) {
-                    diags.push(Diagnostic::error(
-                        format!("{}[行{}].{}", table_name, ri + 1, fname),
-                        format!("外键值 {} 不存在于表 '{}'", key, target),
-                    ));
-                }
+                let value = record.data.get(fi).unwrap_or(&DType::Null);
+                check_refs_in_value(
+                    value,
+                    fti,
+                    target,
+                    keys,
+                    ri + 1,
+                    fname,
+                    table_name,
+                    &mut diags,
+                );
             }
         }
     }
     diags
+}
+
+/// 收集类型中所有 ref 目标（map 只收集 value，key 不作为 ref）。
+fn collect_ref_targets<'a>(ti: &'a TypeInfo, out: &mut HashSet<&'a str>) {
+    match &ti.kind {
+        TypeKind::Ref(target) => {
+            out.insert(target.as_str());
+        }
+        TypeKind::List(elem_ti) | TypeKind::Set(elem_ti) | TypeKind::Array(elem_ti) => {
+            collect_ref_targets(elem_ti, out);
+        }
+        TypeKind::Map(_, value_ti) => collect_ref_targets(value_ti, out),
+        _ => {}
+    }
+}
+
+/// 递归校验容器内的 ref（支持 list/set/array/map 嵌套；map 只校验 value）。
+fn check_refs_in_value(
+    value: &DType,
+    ti: &TypeInfo,
+    target_table: &str,
+    keys: &HashSet<String>,
+    row: usize,
+    fname: &str,
+    table_name: &str,
+    diags: &mut Vec<Diagnostic>,
+) {
+    match (&ti.kind, value) {
+        (TypeKind::Ref(target), val) if target == target_table => {
+            if val.is_null() {
+                return;
+            }
+            let key = key_string(val);
+            if !keys.contains(&key) {
+                diags.push(Diagnostic::error(
+                    format!("{}[行{}].{}", table_name, row, fname),
+                    format!("外键值 {} 不存在于表 '{}'", key, target_table),
+                ));
+            }
+        }
+        (
+            TypeKind::List(elem_ti),
+            DType::List(values),
+        ) | (
+            TypeKind::Set(elem_ti),
+            DType::Set(values),
+        ) | (
+            TypeKind::Array(elem_ti),
+            DType::Array(values),
+        ) => {
+            for value in values {
+                check_refs_in_value(
+                    value,
+                    elem_ti,
+                    target_table,
+                    keys,
+                    row,
+                    fname,
+                    table_name,
+                    diags,
+                );
+            }
+        }
+        (TypeKind::Map(_, value_ti), DType::Map(entries)) => {
+            for (_, value) in entries {
+                check_refs_in_value(
+                    value,
+                    value_ti,
+                    target_table,
+                    keys,
+                    row,
+                    fname,
+                    table_name,
+                    diags,
+                );
+            }
+        }
+        _ => {}
+    }
 }
 
 /// 解析 `[min,max]` 闭区间。
@@ -260,6 +459,34 @@ fn parse_range(s: &str) -> Result<(f64, f64), String> {
     Ok((min, max))
 }
 
+/// 解析 `[min,max]` 整数闭区间，用于容器大小校验。
+fn parse_int_range(s: &str) -> Result<(i64, i64), String> {
+    let s = s.trim();
+    let inner = s
+        .strip_prefix('[')
+        .and_then(|x| x.strip_suffix(']'))
+        .ok_or_else(|| format!("size 格式应为 [min,max]，实际 '{}'", s))?;
+    let parts: Vec<&str> = inner.split(',').collect();
+    if parts.len() != 2 {
+        return Err(format!("size 应含一个逗号: '{}'", s));
+    }
+    let min = parts[0]
+        .trim()
+        .parse::<i64>()
+        .map_err(|_| format!("非法下界 '{}'，应为非负整数", parts[0]))?;
+    let max = parts[1]
+        .trim()
+        .parse::<i64>()
+        .map_err(|_| format!("非法上界 '{}'，应为非负整数", parts[1]))?;
+    if min < 0 || max < 0 {
+        return Err("size 上下界应为非负整数".to_string());
+    }
+    if min > max {
+        return Err(format!("下界 {} 大于上界 {}", min, max));
+    }
+    Ok((min, max))
+}
+
 /// 值 → 可比较的字符串 key（用于唯一性判断 / 外键索引）。
 pub fn key_string(v: &DType) -> String {
     match v {
@@ -280,7 +507,9 @@ pub fn key_string(v: &DType) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Record;
     use crate::types::TypeKind;
+    use std::collections::HashMap;
 
     #[test]
     fn range_validator() {
@@ -304,5 +533,221 @@ mod tests {
         assert_eq!(parse_range("[1,100]").unwrap(), (1.0, 100.0));
         assert!(parse_range("[100,1]").is_err());
         assert!(parse_range("abc").is_err());
+    }
+
+    #[test]
+    fn foreign_keys_in_containers() {
+        let table = DefTable {
+            name: "TbBag".into(),
+            module: "game".into(),
+            comment: None,
+            mode: TableMode::List,
+            index: vec![],
+            value_type: "game.BagCfg".into(),
+            input: vec![],
+            groups: vec![],
+        };
+        let fields = vec![
+            (
+                "items".into(),
+                TypeInfo::new(TypeKind::List(Box::new(TypeInfo::new(TypeKind::Ref(
+                    "TbItem".into(),
+                ))))),
+            ),
+            (
+                "slots".into(),
+                TypeInfo::new(TypeKind::Map(
+                    Box::new(TypeInfo::new(TypeKind::Str)),
+                    Box::new(TypeInfo::new(TypeKind::Ref("TbItem".into()))),
+                )),
+            ),
+        ];
+        let key_sets = HashMap::from([(
+            "TbItem".to_string(),
+            HashSet::from(["i1".to_string(), "i2".to_string()]),
+        )]);
+
+        let mut valid = TableData::new();
+        let mut valid_record = Record::with_capacity(fields.len());
+        valid_record.push(DType::List(vec![DType::Int(1), DType::Null]));
+        valid_record.push(DType::Map(vec![
+            (DType::Str("a".into()), DType::Int(2)),
+            (DType::Str("b".into()), DType::Null),
+        ]));
+        valid.push(valid_record);
+        assert!(validate_foreign_keys("TbBag", &table, &valid, &fields, &key_sets).is_empty());
+
+        let mut invalid = TableData::new();
+        let mut invalid_record = Record::with_capacity(fields.len());
+        invalid_record.push(DType::List(vec![DType::Int(3)]));
+        invalid_record.push(DType::Map(vec![(
+            DType::Str("a".into()),
+            DType::Int(4),
+        )]));
+        invalid.push(invalid_record);
+        let diags = validate_foreign_keys("TbBag", &table, &invalid, &fields, &key_sets);
+        assert_eq!(diags.len(), 2);
+        assert_eq!(diags[0].source, Some("TbBag[行1].items".to_string()));
+        assert_eq!(diags[0].message, "外键值 i3 不存在于表 'TbItem'");
+        assert_eq!(diags[1].source, Some("TbBag[行1].slots".to_string()));
+        assert_eq!(diags[1].message, "外键值 i4 不存在于表 'TbItem'");
+    }
+
+    #[test]
+    fn non_negative_validator() {
+        let v = NonNegativeValidator;
+        let ti = TypeInfo {
+            kind: TypeKind::I32,
+            nullable: false,
+            tags: [("nonneg".to_string(), "true".to_string())]
+                .into_iter()
+                .collect(),
+        };
+
+        assert_eq!(
+            v.validate(&DType::Int(-1), &ti).unwrap_err(),
+            "值 -1 为负，不满足非负约束"
+        );
+        assert!(v.validate(&DType::Int(0), &ti).is_ok());
+        assert!(v.validate(&DType::Int(5), &ti).is_ok());
+        assert_eq!(
+            v.validate(&DType::Float(-0.5), &ti).unwrap_err(),
+            "值 -0.5 为负，不满足非负约束"
+        );
+        assert!(v.validate(&DType::UInt(1), &ti).is_ok());
+        assert!(v.validate(&DType::Null, &ti).is_ok());
+
+        let err = v.validate(&DType::Str("x".to_string()), &ti).unwrap_err();
+        assert!(err.contains("nonneg 校验不适用于类型"));
+
+        let ti_without_tag = TypeInfo::new(TypeKind::I32);
+        assert!(v.validate(&DType::Int(-1), &ti_without_tag).is_ok());
+        assert!(v
+            .validate(&DType::Str("x".to_string()), &ti_without_tag)
+            .is_ok());
+    }
+
+    #[test]
+    fn defaults_include_non_negative_validator() {
+        let registry = ValidatorRegistry::with_defaults();
+        assert!(registry
+            .field_validators
+            .iter()
+            .any(|v| v.name() == "nonneg"));
+    }
+
+    #[test]
+    fn path_validator_with_absolute_and_root_paths() {
+        let root = std::env::temp_dir().join(format!(
+            "liuhuo_path_validator_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let dir = root.join("assets/textures");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("icon.png");
+        std::fs::write(&file, "png").unwrap();
+
+        let validator = PathValidator {
+            root: Some(root.join("assets")),
+        };
+        let ti = TypeInfo {
+            kind: TypeKind::Str,
+            nullable: false,
+            tags: [("path".to_string(), "true".to_string())]
+                .into_iter()
+                .collect(),
+        };
+
+        assert!(validator
+            .validate(&DType::Str(file.to_string_lossy().into_owned()), &ti)
+            .is_ok());
+        assert_eq!(
+            validator
+                .validate(
+                    &DType::Str(root.join("missing.png").to_string_lossy().into_owned()),
+                    &ti
+                )
+                .unwrap_err(),
+            format!("路径 '{}' 不存在", root.join("missing.png").display())
+        );
+        assert!(validator
+            .validate(&DType::Text("textures/icon.png".to_string()), &ti)
+            .is_ok());
+        assert_eq!(
+            validator
+                .validate(&DType::Text("textures/missing.png".to_string()), &ti)
+                .unwrap_err(),
+            "路径 'textures/missing.png' 不存在"
+        );
+        assert!(validator.validate(&DType::Null, &ti).is_ok());
+
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn path_validator_only_registered_with_root() {
+        let defaults = ValidatorRegistry::with_defaults();
+        assert!(!defaults
+            .field_validators
+            .iter()
+            .any(|v| v.name() == "path"));
+
+        let with_root = ValidatorRegistry::with_defaults_and_root(Some(Path::new("assets")));
+        assert!(with_root
+            .field_validators
+            .iter()
+            .any(|v| v.name() == "path"));
+    }
+
+    #[test]
+    fn size_validator() {
+        let v = SizeValidator;
+        let mut ti = TypeInfo {
+            kind: TypeKind::List(Box::new(TypeInfo::new(TypeKind::I32))),
+            nullable: false,
+            tags: [("size".to_string(), "[1,3]".to_string())]
+                .into_iter()
+                .collect(),
+        };
+        let list = DType::List(vec![
+            DType::Int(1),
+            DType::Int(2),
+            DType::Int(3),
+        ]);
+        assert!(v.validate(&list, &ti).is_ok());
+
+        ti.tags.insert("size".to_string(), "[4,5]".to_string());
+        assert_eq!(
+            v.validate(&list, &ti).unwrap_err(),
+            "容器大小 3 超出范围 [4, 5]"
+        );
+
+        ti.kind = TypeKind::Map(
+            Box::new(TypeInfo::new(TypeKind::Str)),
+            Box::new(TypeInfo::new(TypeKind::I32)),
+        );
+        ti.tags.insert("size".to_string(), "[2,2]".to_string());
+        let map = DType::Map(vec![
+            (DType::Str("a".to_string()), DType::Int(1)),
+            (DType::Str("b".to_string()), DType::Int(2)),
+        ]);
+        assert!(v.validate(&map, &ti).is_ok());
+
+        assert!(v.validate(&DType::Null, &ti).is_ok());
+
+        ti.tags.remove("size");
+        assert!(v.validate(&DType::Str("x".to_string()), &ti).is_ok());
+        ti.tags.insert("size".to_string(), "[0,1]".to_string());
+        assert_eq!(
+            v.validate(&DType::Str("x".to_string()), &ti).unwrap_err(),
+            "size 校验不适用于类型 string"
+        );
+
+        ti.tags.insert("size".to_string(), "[3,1]".to_string());
+        assert!(v.validate(&list, &ti).is_err());
     }
 }
