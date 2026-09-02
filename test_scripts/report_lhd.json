@@ -1,0 +1,256 @@
+{
+  "failed": 0,
+  "groups": {
+    "A": {
+      "cases": [
+        {
+          "detail": "",
+          "name": "标准头部加载成功",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "自定义 @元数据与未知指令容忍",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "缺 ## fields 指令报错",
+          "passed": true
+        }
+      ],
+      "failed": 0,
+      "passed": 3,
+      "total": 3
+    },
+    "B": {
+      "cases": [
+        {
+          "detail": "",
+          "name": "嵌套容器行加载（list+map）",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "id int 解析",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "枚举裸名 Purple→3",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "list<string> 解析 2 项",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "map<string,int> {k=v} 解析",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "空容器 () 与 {} 解析",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "0x/下划线整数（0x10=16, 1_000=1000）",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "逐行错误收集（好行保留+2条错误）",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "错误定位含行号",
+          "passed": true
+        }
+      ],
+      "failed": 0,
+      "passed": 9,
+      "total": 9
+    },
+    "C": {
+      "cases": [
+        {
+          "detail": "",
+          "name": "停用行不进数据（2 启用/2 停用）",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "停用行内容仍可解析",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "保存保留 : 停用行",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "往返后停用行身份不变",
+          "passed": true
+        }
+      ],
+      "failed": 0,
+      "passed": 4,
+      "total": 4
+    },
+    "D": {
+      "cases": [
+        {
+          "detail": "",
+          "name": "多标签 @tag(dev,release)",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "键值标签 @tag(stage=alpha)",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "无标签行 tags 为空",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "字符串内 @tag 不误判",
+          "passed": true
+        }
+      ],
+      "failed": 0,
+      "passed": 4,
+      "total": 4
+    },
+    "E": {
+      "cases": [
+        {
+          "detail": "",
+          "name": "整行注释跳过 + 行尾注释剥离",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "字符串内 // 保留",
+          "passed": true
+        }
+      ],
+      "failed": 0,
+      "passed": 2,
+      "total": 2
+    },
+    "F": {
+      "cases": [
+        {
+          "detail": "",
+          "name": "@type 行解析为子类（7 字段）",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "无标记行默认 record 类型",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "@type 缺 ) 报行级错误",
+          "passed": true
+        }
+      ],
+      "failed": 0,
+      "passed": 3,
+      "total": 3
+    },
+    "G": {
+      "cases": [
+        {
+          "detail": "",
+          "name": "fields 错位 = 硬错误",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "fields 错位不加载数据（防静默错位）",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "字段数不一致 = 硬错误",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "指纹不匹配 = 警告且数据正常加载",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "schema 加字段后旧数据文件报错",
+          "passed": true
+        }
+      ],
+      "failed": 0,
+      "passed": 5,
+      "total": 5
+    },
+    "H": {
+      "cases": [
+        {
+          "detail": "",
+          "name": "保存幂等（二次往返字节级一致）",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "乱序主键重排为 1,2,3",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "order=- 保留人工顺序（3,1,2 不重排）",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "自定义元数据写回头部",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "10万行加载（5 MB, 901 ms）",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "首行 id=0 尾行 id=99999",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "10万行确定性保存（354 ms）",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "10万行往返幂等",
+          "passed": true
+        }
+      ],
+      "failed": 0,
+      "passed": 8,
+      "total": 8
+    }
+  },
+  "passed": 38,
+  "suite": ".lhd 内置数据格式端到端测试",
+  "tool": "liuhuo_core",
+  "total": 38,
+  "verdict": "PASS"
+}

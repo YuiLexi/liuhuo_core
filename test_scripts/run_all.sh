@@ -38,5 +38,14 @@ echo "-- 综合套件（全量/增量编译·校验·代码生成·数据导出�
 rustc --edition 2024     -L target/debug/deps     $EXTERN     --extern liuhuo_core="${RLIB}"     -o test_scripts/e2e_full_suite.exe     test_scripts/e2e_full_suite.rs
 ./test_scripts/e2e_full_suite.exe || RC=1
 
+echo "-- .lhd 内置数据格式套件 --"
+rustc --edition 2024 \
+    -L target/debug/deps \
+    $EXTERN \
+    --extern liuhuo_core="${RLIB}" \
+    -o test_scripts/e2e_lhd.exe \
+    test_scripts/e2e_lhd.rs
+./test_scripts/e2e_lhd.exe || RC=1
+
 echo "== [3/3] 完成 =="
 exit $RC
