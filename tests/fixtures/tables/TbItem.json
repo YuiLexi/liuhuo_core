@@ -1,0 +1,9 @@
+{
+  "name": "TbItem",
+  "module": "game",
+  "comment": "道具表",
+  "mode": "map",
+  "index": "id",
+  "value_type": "game.ItemCfg",
+  "input": ["item.json"]
+}

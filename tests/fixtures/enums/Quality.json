@@ -1,0 +1,11 @@
+{
+  "name": "Quality",
+  "comment": "品质",
+  "items": [
+    { "name": "White", "value": "0", "comment": "白" },
+    { "name": "Green" },
+    { "name": "Blue" },
+    { "name": "Purple" },
+    { "name": "Gold", "value": "10" }
+  ]
+}

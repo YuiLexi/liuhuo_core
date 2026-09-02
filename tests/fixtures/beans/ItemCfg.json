@@ -1,0 +1,11 @@
+{
+  "name": "ItemCfg",
+  "module": "game",
+  "comment": "道具配置",
+  "fields": [
+    { "name": "id", "type": "int", "comment": "ID" },
+    { "name": "name", "type": "string", "comment": "名称" },
+    { "name": "quality", "type": "Quality", "comment": "品质" },
+    { "name": "attrs", "type": "map<string,int>", "comment": "属性" }
+  ]
+}

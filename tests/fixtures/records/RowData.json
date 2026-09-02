@@ -1,0 +1,9 @@
+{
+  "name": "RowData",
+  "module": "game",
+  "comment": "通用行数据",
+  "fields": [
+    { "name": "id", "type": "int", "comment": "ID" },
+    { "name": "value", "type": "string", "comment": "值" }
+  ]
+}

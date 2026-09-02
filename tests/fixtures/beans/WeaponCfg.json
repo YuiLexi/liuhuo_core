@@ -1,0 +1,10 @@
+{
+  "name": "WeaponCfg",
+  "module": "game",
+  "comment": "武器配置（继承道具配置）",
+  "parent": "game.ItemCfg",
+  "fields": [
+    { "name": "atk", "type": "int", "comment": "攻击力" },
+    { "name": "durability", "type": "int(range=[0,100])", "comment": "耐久度" }
+  ]
+}
