@@ -147,21 +147,36 @@ fn unquote(s: &str) -> Result<String, String> {
 pub fn parse_value(s: &str, ti: &TypeInfo, ctx: &dyn DataContext) -> Result<DType, String> {
     let s = s.trim();
     match &ti.kind {
+        // ── 严格语法规则（.lhd 规范）──
+        // 布尔/枚举/数字必须裸形式（不带引号）；带引号给出明确错误
         TypeKind::Bool => match s {
             "true" => Ok(DType::Bool(true)),
             "false" => Ok(DType::Bool(false)),
+            "\"true\"" | "\"false\"" => {
+                Err(format!("bool 不能用双引号包裹: {}（应写 true/false）", s))
+            }
             _ => Err(format!("非法 bool '{}'", s)),
         },
         TypeKind::I8 | TypeKind::I16 | TypeKind::I32 | TypeKind::I64 => {
+            if s.starts_with('"') && s.ends_with('"') && s.len() >= 2 {
+                return Err(format!("数字不能用双引号包裹: {}（应写裸数字）", s));
+            }
             crate::defs::parse_int_literal(s).map(DType::Int)
         }
         TypeKind::U8 | TypeKind::U16 | TypeKind::U32 | TypeKind::U64 => {
+            if s.starts_with('"') && s.ends_with('"') && s.len() >= 2 {
+                return Err(format!("数字不能用双引号包裹: {}（应写裸数字）", s));
+            }
             crate::defs::parse_int_literal(s).map(|v| DType::UInt(v as u64))
         }
-        TypeKind::F32 | TypeKind::F64 => s
-            .parse::<f64>()
-            .map(DType::Float)
-            .map_err(|_| format!("非法浮点 '{}'", s)),
+        TypeKind::F32 | TypeKind::F64 => {
+            if s.starts_with('"') && s.ends_with('"') && s.len() >= 2 {
+                return Err(format!("数字不能用双引号包裹: {}（应写裸数字）", s));
+            }
+            s.parse::<f64>()
+                .map(DType::Float)
+                .map_err(|_| format!("非法浮点 '{}'", s))
+        }
         TypeKind::Str => unquote(s).map(DType::Str),
         TypeKind::Text => unquote(s).map(DType::Text),
         TypeKind::DateTime => s
@@ -169,6 +184,13 @@ pub fn parse_value(s: &str, ti: &TypeInfo, ctx: &dyn DataContext) -> Result<DTyp
             .map(DType::DateTime)
             .map_err(|_| format!("非法时间戳 '{}'", s)),
         TypeKind::Enum(name) => {
+            // 枚举必须裸名（true/false、White/Green…），带引号给出明确错误
+            if s.starts_with('"') && s.ends_with('"') && s.len() >= 2 {
+                return Err(format!(
+                    "枚举不能用双引号包裹: {}（应写裸枚举名，如 White/Green）",
+                    s
+                ));
+            }
             // 名字 / 别名 / 数值
             let v = ctx
                 .enum_value(name, s)
@@ -232,9 +254,10 @@ pub fn parse_value(s: &str, ti: &TypeInfo, ctx: &dyn DataContext) -> Result<DTyp
                 split_top_level(inner, ',')
                     .iter()
                     .map(|pair| {
-                        let (k, v) = split_first_top_level(pair, ':');
+                        // 严格语法：字典只允许 k=v（.lhd 规范）；k:v 报错
+                        let (k, v) = split_first_top_level(pair, '=');
                         if k.is_empty() || v.is_empty() {
-                            return Err(format!("Map 条目需 k:v 格式: '{}'", pair));
+                            return Err(format!("Map 条目需 k=v 格式: '{}'", pair));
                         }
                         // 字符串键允许裸形式（.lhd 的 {k=v} 语法）：自动补引号
                         let k_owned;
