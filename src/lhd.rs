@@ -61,13 +61,14 @@ impl LhdHeader {
             .bean_hierarchy_fields(&table.value_type)
             .map(|v| v.into_iter().map(|(n, _)| n).collect())
             .unwrap_or_default();
+        // 设计文档 §3.1：map 表 = 主键列；list/one 表 = "-"（保留人工顺序，永不重排）
         let order = match table.mode {
-            TableMode::Map | TableMode::List => table
+            TableMode::Map => table
                 .index
                 .first()
                 .and_then(|i| i.columns.first().cloned())
                 .unwrap_or_else(|| "-".to_string()),
-            TableMode::One => "-".to_string(),
+            TableMode::List | TableMode::One => "-".to_string(),
         };
         LhdHeader {
             format: LHD_FORMAT.to_string(),
@@ -307,6 +308,46 @@ fn extract_line_tags(line: &str) -> (&str, HashMap<String, String>) {
 // 加载
 // ============================================================================
 
+
+/// .lhd 的 map 条目分隔符是 `k=v`（设计文档 §4），共享 parse_value 用 `k:v`。
+/// 加载前把花括号块内的裸 `=` 归一化为 `:`（引号态除外；bean 的 {v|v} 不含裸 =）。
+fn normalize_map_eq(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut depth = 0i32;
+    let mut in_str = false;
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if in_str {
+            out.push(c);
+            if c == '\\' {
+                if let Some(next) = chars.next() {
+                    out.push(next);
+                }
+            } else if c == '"' {
+                in_str = false;
+            }
+            continue;
+        }
+        match c {
+            '"' => {
+                in_str = true;
+                out.push(c);
+            }
+            '{' | '[' | '(' => {
+                depth += 1;
+                out.push(c);
+            }
+            '}' | ']' | ')' => {
+                depth -= 1;
+                out.push(c);
+            }
+            '=' if depth >= 1 => out.push(':'),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
 /// `.lhd` 加载结果：数据 + 逐行诊断（不快速失败）+ 停用行 + 头部。
 pub struct LhdLoadResult {
     pub data: TableData,
@@ -407,7 +448,7 @@ pub fn load_lhd_from_str(
             },
             None => ti_record.clone(),
         };
-        match parse_value(&pl.body, &ti, ctx) {
+        match parse_value(&normalize_map_eq(&pl.body), &ti, ctx) {
             Ok(DType::Bean(actual, vals)) => {
                 let mut rec = Record::with_capacity(vals.len());
                 rec.bean = Some(actual);
@@ -442,11 +483,47 @@ pub fn load_lhd_from_str(
 // 保存（确定性 / 幂等）
 // ============================================================================
 
+
+/// .lhd 序列化：Map 用 {裸键=值}（设计文档 §4），其余类型沿用 serialize_value。
+pub fn lhd_serialize(v: &DType) -> String {
+    match v {
+        DType::Map(entries) => format!(
+            "{{{}}}",
+            entries
+                .iter()
+                .map(|(k, val)| format!("{}={}", lhd_bare_key(k), lhd_serialize(val)))
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        DType::Bean(name, vals) => format!(
+            "{{{}}}",
+            vals.iter().map(lhd_serialize).collect::<Vec<_>>().join("|")
+        ),
+        DType::List(vals) | DType::Array(vals) => format!(
+            "[{}]",
+            vals.iter().map(lhd_serialize).collect::<Vec<_>>().join(",")
+        ),
+        DType::Set(vals) => format!(
+            "({})",
+            vals.iter().map(lhd_serialize).collect::<Vec<_>>().join(",")
+        ),
+        other => serialize_value(other),
+    }
+}
+
+/// map 键的裸形式：字符串键去引号，其它（int/enum…）原样。
+fn lhd_bare_key(k: &DType) -> String {
+    match k {
+        DType::Str(s) | DType::Text(s) => s.clone(),
+        other => serialize_value(other),
+    }
+}
+
 /// 渲染一条记录为一行（不含换行）。
 pub fn record_to_line(rec: &Record, ctx: &dyn DataContext) -> String {
     let mut out = String::new();
     if let Some(b) = &rec.bean {
-        out.push_str(&serialize_value(&DType::Bean(b.clone(), rec.data.clone())));
+        out.push_str(&lhd_serialize(&DType::Bean(b.clone(), rec.data.clone())));
     } else {
         out.push_str(
             &rec
