@@ -9,6 +9,7 @@
 //!   F. 多态行          —— @type 标记/无标记默认/行首 @type 缺括号报错
 //!   G. schema 漂移     —— fields 错位=硬错误/指纹不匹配=警告/逐行错误收集
 //!   H. 确定性保存+性能  —— 幂等往返/主键乱序重排/list 顺序保留/10万行加载性能
+//!   I. 严格语法          —— k=v only/引号规则/空格过滤
 //!
 //! 输出：终端 PASS/FAIL 明细 + JSON 报告（test_scripts/report_lhd.json）。
 
@@ -339,6 +340,95 @@ fn scenario_drift() {
 // H. 确定性保存 + 性能
 // ============================================================================
 
+// ============================================================================
+// I. 严格语法规则（v1 定稿）
+// ============================================================================
+
+fn scenario_strict() {
+    println!("
+=== I. 严格语法规则 ===");
+    let sym = build_symtab();
+    let head = header_ok();
+
+    // 1. 字典只允许 k=v：k:v 报错
+    let doc = format!("{}
+{{1|\"a\"|Green|1|[]|{{k:5}}}}", head);
+    let r = load_lhd_from_str(&doc, &equip_table(), &sym).unwrap();
+    check("I", "字典 k:v 报错（只允许 k=v）",
+        r.diagnostics.iter().any(|d| d.is_error() && d.message.contains("k=v")),
+        &format!("{:?}", r.diagnostics));
+    // k=v 裸键合法
+    let doc = format!("{}
+{{1|\"a\"|Green|1|[]|{{k=5}}}}", head);
+    let r = load_lhd_from_str(&doc, &equip_table(), &sym).unwrap();
+    check("I", "字典 k=v 裸键合法", r.data.len() == 1, &format!("{:?}", r.diagnostics));
+
+    // 2. 数字不能带引号
+    let doc = format!("{}
+{{\"1\"|\"a\"|Green|1|[]|{{}}}}", head);
+    let r = load_lhd_from_str(&doc, &equip_table(), &sym).unwrap();
+    check("I", "数字带引号报错（含修复提示）",
+        r.diagnostics.iter().any(|d| d.is_error() && d.message.contains("数字不能用双引号")),
+        &format!("{:?}", r.diagnostics));
+
+    // 3. 枚举不能带引号
+    let doc = format!("{}
+{{1|\"a\"|\"Green\"|1|[]|{{}}}}", head);
+    let r = load_lhd_from_str(&doc, &equip_table(), &sym).unwrap();
+    check("I", "枚举带引号报错",
+        r.diagnostics.iter().any(|d| d.is_error() && d.message.contains("枚举不能用双引号")),
+        &format!("{:?}", r.diagnostics));
+
+    // 4. 字符串必须带引号
+    let doc = format!("{}
+{{1|裸字符串|Green|1|[]|{{}}}}", head);
+    let r = load_lhd_from_str(&doc, &equip_table(), &sym).unwrap();
+    check("I", "裸字符串报错",
+        r.diagnostics.iter().any(|d| d.is_error() && d.message.contains("双引号")),
+        &format!("{:?}", r.diagnostics));
+
+    // 5. 首尾空格自动过滤（字段间多余空白）
+    let doc = format!("{}
+{{  1  |  \"铁剑\"  |  Green  |  10  |  []  |  {{}}  }}", head);
+    let r = load_lhd_from_str(&doc, &equip_table(), &sym).unwrap();
+    check("I", "首尾空格自动过滤",
+        r.data.len() == 1 && matches!(&r.data.records[0].data[0], DType::Int(1))
+            && matches!(&r.data.records[0].data[3], DType::Int(10)),
+        &format!("{:?}", r.diagnostics));
+
+    // 6. bool 裸形式（好行）+ 引号形式（坏行）
+    let mut sym2 = build_symtab();
+    let bean: RawDef = serde_json::from_str(
+        r#"{"Bean":{"name":"FlagCfg","module":"game","fields":[{"name":"id","type":"int"},{"name":"on","type":"bool"}]}}"#,
+    ).unwrap();
+    let _ = sym2.register(&bean);
+    let t2 = DefTable {
+        name: "game.TbFlag".into(),
+        value_type: "game.FlagCfg".into(),
+        index: vec![TableIndex { columns: vec!["id".into()] }],
+        ..equip_table()
+    };
+    let head2 = format!(
+        "## format=lhd
+## version=1
+## table=TbFlag
+## record=game.FlagCfg
+## fields=id|on
+## order=id
+## schema={}
+",
+        schema_fingerprint(&t2, &sym2)
+    );
+    let doc = format!("{}
+{{1|true}}
+{{2|\"false\"}}", head2);
+    let r = load_lhd_from_str(&doc, &t2, &sym2).unwrap();
+    check("I", "bool 裸 true 合法 / 引号 false 报错",
+        r.data.len() == 1 && matches!(&r.data.records[0].data[1], DType::Bool(true))
+            && r.diagnostics.iter().any(|d| d.is_error() && d.message.contains("bool 不能用双引号")),
+        &format!("data={} diags={:?}", r.data.len(), r.diagnostics));
+}
+
 fn scenario_save_perf(root: &Path) {
     println!("\n=== H. 确定性保存 + 性能 ===");
     let sym = build_symtab();
@@ -428,6 +518,7 @@ fn main() {
     scenario_comments();
     scenario_polymorphic();
     scenario_drift();
+    scenario_strict();
     scenario_save_perf(&root);
     let _ = std::fs::remove_dir_all(&root);
 

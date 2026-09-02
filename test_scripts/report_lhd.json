@@ -224,7 +224,7 @@
         },
         {
           "detail": "",
-          "name": "10万行加载（5 MB, 901 ms）",
+          "name": "10万行加载（5 MB, 832 ms）",
           "passed": true
         },
         {
@@ -234,7 +234,7 @@
         },
         {
           "detail": "",
-          "name": "10万行确定性保存（354 ms）",
+          "name": "10万行确定性保存（368 ms）",
           "passed": true
         },
         {
@@ -246,11 +246,53 @@
       "failed": 0,
       "passed": 8,
       "total": 8
+    },
+    "I": {
+      "cases": [
+        {
+          "detail": "",
+          "name": "字典 k:v 报错（只允许 k=v）",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "字典 k=v 裸键合法",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "数字带引号报错（含修复提示）",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "枚举带引号报错",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "裸字符串报错",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "首尾空格自动过滤",
+          "passed": true
+        },
+        {
+          "detail": "",
+          "name": "bool 裸 true 合法 / 引号 false 报错",
+          "passed": true
+        }
+      ],
+      "failed": 0,
+      "passed": 7,
+      "total": 7
     }
   },
-  "passed": 38,
+  "passed": 45,
   "suite": ".lhd 内置数据格式端到端测试",
   "tool": "liuhuo_core",
-  "total": 38,
+  "total": 45,
   "verdict": "PASS"
 }
