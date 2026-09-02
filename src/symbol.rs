@@ -15,7 +15,8 @@
 //! - `compile_all`：CLI 全量（两阶段：注册全部 → 全量重检 + 继承环检测）
 
 use crate::defs::{
-    DefKind, DefTable, DefValue, RawDef, compile_bean, compile_enum, compile_record, compile_table,
+    DefKind, DefTable, DefValue, RawDef, TableIndex, compile_bean, compile_enum, compile_record,
+    compile_table,
 };
 use crate::diagnostic::Diagnostic;
 use crate::types::{TypeInfo, TypeRef, TypeResolver};
@@ -412,6 +413,7 @@ impl TypeResolver for SymbolTable {
         match self.defs.get(full_name) {
             Some(DefValue::Enum(_)) => Some(TypeRef::Enum),
             Some(DefValue::Bean(_)) => Some(TypeRef::Bean),
+            Some(DefValue::Record(_)) => Some(TypeRef::Record),
             _ => None,
         }
     }
@@ -419,6 +421,9 @@ impl TypeResolver for SymbolTable {
     fn bean_field_names(&self, full_name: &str) -> Option<Vec<String>> {
         match self.defs.get(full_name) {
             Some(DefValue::Bean(b)) => Some(b.hierarchy_field_names.clone()),
+            Some(DefValue::Record(r)) => {
+                Some(r.fields.iter().map(|f| f.name.clone()).collect())
+            }
             _ => None,
         }
     }
@@ -431,6 +436,19 @@ impl TypeResolver for SymbolTable {
                     .map(|f| (f.name.clone(), f.type_info.clone()))
                     .collect(),
             ),
+            Some(DefValue::Record(r)) => Some(
+                r.fields
+                    .iter()
+                    .map(|f| (f.name.clone(), f.type_info.clone()))
+                    .collect(),
+            ),
+            _ => None,
+        }
+    }
+
+    fn record_indexes(&self, full_name: &str) -> Option<Vec<TableIndex>> {
+        match self.defs.get(full_name) {
+            Some(DefValue::Record(r)) => Some(r.index.clone()),
             _ => None,
         }
     }
@@ -473,6 +491,9 @@ impl DataContext for SymbolTable {
             Some(DefValue::Bean(b)) => {
                 Some(b.hierarchy_fields.iter().map(|f| f.name.clone()).collect())
             }
+            Some(DefValue::Record(r)) => {
+                Some(r.fields.iter().map(|f| f.name.clone()).collect())
+            }
             _ => None,
         }
     }
@@ -481,6 +502,12 @@ impl DataContext for SymbolTable {
         match self.defs.get(bean_name) {
             Some(DefValue::Bean(b)) => Some(
                 b.hierarchy_fields
+                    .iter()
+                    .map(|f| (f.name.clone(), f.type_info.clone()))
+                    .collect(),
+            ),
+            Some(DefValue::Record(r)) => Some(
+                r.fields
                     .iter()
                     .map(|f| (f.name.clone(), f.type_info.clone()))
                     .collect(),
@@ -497,7 +524,7 @@ impl DataContext for SymbolTable {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::defs::{RawBean, RawEnum, RawEnumItem, RawField, RawTable};
+    use crate::defs::{RawBean, RawEnum, RawEnumItem, RawField, RawRecord, RawTable};
 
     fn enum_def(name: &str, items: &[&str]) -> RawDef {
         RawDef::Enum(RawEnum {
@@ -516,6 +543,22 @@ mod tests {
     fn bean_def(name: &str, fields: &[(&str, &str)]) -> RawDef {
         RawDef::Bean(RawBean {
             name: name.into(),
+            fields: fields
+                .iter()
+                .map(|(n, t)| RawField {
+                    name: (*n).into(),
+                    r#type: (*t).into(),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        })
+    }
+
+    fn record_def(name: &str, fields: &[(&str, &str)], index: Option<&str>) -> RawDef {
+        RawDef::Record(RawRecord {
+            name: name.into(),
+            index: index.map(str::to_string),
             fields: fields
                 .iter()
                 .map(|(n, t)| RawField {
@@ -670,5 +713,31 @@ mod tests {
             ..Default::default()
         }));
         assert!(diags.iter().any(|d| d.message.contains("索引列 'missing'")));
+    }
+
+    #[test]
+    fn record_as_table_value_type_and_auto_index() {
+        let mut s = SymbolTable::new();
+        let record = record_def("ItemRec", &[("id", "int"), ("name", "string")], Some("id"));
+        let table = RawDef::Table(RawTable {
+            name: "TbItemRec".into(),
+            value_type: "ItemRec".into(),
+            mode: Some("list".into()),
+            ..Default::default()
+        });
+        let diags = s.compile_all(&[record, table]);
+        assert!(diags.is_empty(), "表编译不应有诊断: {:?}", diags);
+        assert!(s.is_ok());
+        assert_eq!(s.resolve("ItemRec"), Some(TypeRef::Record));
+        assert_eq!(
+            s.bean_field_names("ItemRec"),
+            Some(vec!["id".to_string(), "name".to_string()])
+        );
+        assert_eq!(
+            s.get_table("TbItemRec").unwrap().index,
+            vec![TableIndex {
+                columns: vec!["id".to_string()]
+            }]
+        );
     }
 }

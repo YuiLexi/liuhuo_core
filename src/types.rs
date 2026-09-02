@@ -19,6 +19,7 @@ use std::collections::HashMap;
 pub enum TypeRef {
     Enum,
     Bean,
+    Record,
 }
 
 /// 类型解析器：把 full_name 解析为 enum / bean，或 `None`（未定义）。
@@ -34,6 +35,12 @@ pub trait TypeResolver {
     /// Bean 的层级字段（含父类，从根到自身），完整字段名 + 类型。
     /// 用于数据加载（解码 JSON 记录时需要知道每个字段的类型）。
     fn bean_hierarchy_fields(&self, full_name: &str) -> Option<Vec<(String, TypeInfo)>> {
+        let _ = full_name;
+        None
+    }
+
+    /// Record 的索引定义（无继承，字段自身声明）。
+    fn record_indexes(&self, full_name: &str) -> Option<Vec<crate::defs::TableIndex>> {
         let _ = full_name;
         None
     }
@@ -401,6 +408,7 @@ fn parse_type_expr(s: &str, resolver: &dyn TypeResolver) -> Result<TypeKind, Str
             return Ok(match resolver.resolve(s) {
                 Some(TypeRef::Enum) => TypeKind::Enum(s.to_string()),
                 Some(TypeRef::Bean) => TypeKind::Bean(s.to_string()),
+                Some(TypeRef::Record) => TypeKind::Bean(s.to_string()),
                 None => TypeKind::Unresolved(s.to_string()),
             });
         }

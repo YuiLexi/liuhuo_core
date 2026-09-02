@@ -151,6 +151,8 @@ pub struct RawRecord {
     pub groups: Vec<String>,
     #[serde(default)]
     pub properties: HashMap<String, String>,
+    #[serde(default)]
+    pub index: Option<String>,
 }
 
 /// 任意一种定义的 raw（程序内部统一传递）。
@@ -257,6 +259,7 @@ pub struct DefRecord {
     pub module: String,
     pub comment: Option<String>,
     pub fields: Vec<DefField>,
+    pub index: Vec<TableIndex>,
     pub groups: Vec<String>,
 }
 
@@ -390,6 +393,13 @@ pub fn compile_bean(
                 &full,
                 format!("父类 '{}' 是枚举，不能作为 Bean 的父类", p),
             )),
+            Some(TypeRef::Record) => {
+                deps.push(p.to_string());
+                diags.push(Diagnostic::error(
+                    &full,
+                    format!("父类 '{}' 是 record，不能作为 Bean 的父类", p),
+                ));
+            }
             None => {
                 deps.push(p.to_string());
                 diags.push(Diagnostic::error(
@@ -503,6 +513,7 @@ pub fn compile_table(
     } else {
         match resolver.resolve(raw.value_type.trim()) {
             Some(TypeRef::Bean) => deps.push(raw.value_type.trim().to_string()),
+            Some(TypeRef::Record) => deps.push(raw.value_type.trim().to_string()),
             Some(TypeRef::Enum) => diags.push(Diagnostic::error(
                 &full,
                 format!("value_type '{}' 是枚举，不能作为表记录类型", raw.value_type),
@@ -519,6 +530,14 @@ pub fn compile_table(
 
     // 索引解析
     let mut index = parse_index(raw.index.as_deref(), &full, &mut diags);
+    if let Some(record_indexes) = resolver.record_indexes(raw.value_type.trim()) {
+        let declared_indexes = index.clone();
+        index.extend(
+            record_indexes
+                .into_iter()
+                .filter(|record_index| !declared_indexes.contains(record_index)),
+        );
+    }
 
     // map 模式空索引 → 取 value_type 第一个字段
     let first_field = resolver
@@ -573,6 +592,19 @@ pub fn compile_record(
         diags.push(Diagnostic::error(&full, "Record name 不能为空"));
     }
 
+    let index = parse_index(raw.index.as_deref(), &full, &mut diags);
+    let field_names: HashSet<&str> = raw.fields.iter().map(|f| f.name.as_str()).collect();
+    for idx in &index {
+        for col in &idx.columns {
+            if !field_names.contains(col.as_str()) {
+                diags.push(Diagnostic::error(
+                    &full,
+                    format!("索引列 '{}' 不存在于 record '{}' 的字段中", col, full),
+                ));
+            }
+        }
+    }
+
     let mut fields = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
     for rf in &raw.fields {
@@ -610,6 +642,7 @@ pub fn compile_record(
         module: raw.module.clone(),
         comment: raw.comment.clone(),
         fields,
+        index,
         groups: raw.groups.clone(),
     };
     (def, deps, diags)
@@ -918,5 +951,43 @@ mod tests {
         assert_eq!(idx.len(), 2);
         assert_eq!(idx[0].columns, vec!["a"]);
         assert_eq!(idx[1].columns, vec!["b"]);
+    }
+
+    fn record_raw() -> RawRecord {
+        RawRecord {
+            name: "ItemRec".into(),
+            index: Some("id".into()),
+            fields: vec![
+                RawField {
+                    name: "id".into(),
+                    r#type: "int".into(),
+                    ..Default::default()
+                },
+                RawField {
+                    name: "name".into(),
+                    r#type: "string".into(),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn record_index_compiled() {
+        let (def, _, diags) = compile_record(&record_raw(), &MapResolver::new());
+        assert!(diags.is_empty(), "不应有诊断: {:?}", diags);
+        assert_eq!(def.index.len(), 1);
+        assert_eq!(def.index[0].columns, vec!["id".to_string()]);
+    }
+
+    #[test]
+    fn record_index_unknown_column_diagnosed() {
+        let mut raw = record_raw();
+        raw.index = Some("missing".into());
+        let (_, _, diags) = compile_record(&raw, &MapResolver::new());
+        assert!(diags
+            .iter()
+            .any(|d| d.message.contains("索引列 'missing' 不存在")));
     }
 }
