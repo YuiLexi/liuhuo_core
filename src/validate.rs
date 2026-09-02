@@ -331,26 +331,107 @@ pub fn validate_foreign_keys(
 ) -> Vec<Diagnostic> {
     let mut diags = Vec::new();
     for (fi, (fname, fti)) in fields.iter().enumerate() {
-        if let TypeKind::Ref(target) = &fti.kind {
+        let mut targets = HashSet::new();
+        collect_ref_targets(fti, &mut targets);
+        for target in targets {
             let Some(keys) = key_sets.get(target) else {
                 continue;
             };
             for (ri, record) in data.records.iter().enumerate() {
-                let val = record.data.get(fi).unwrap_or(&DType::Null);
-                if val.is_null() {
-                    continue;
-                }
-                let key = key_string(val);
-                if !keys.contains(&key) {
-                    diags.push(Diagnostic::error(
-                        format!("{}[行{}].{}", table_name, ri + 1, fname),
-                        format!("外键值 {} 不存在于表 '{}'", key, target),
-                    ));
-                }
+                let value = record.data.get(fi).unwrap_or(&DType::Null);
+                check_refs_in_value(
+                    value,
+                    fti,
+                    target,
+                    keys,
+                    ri + 1,
+                    fname,
+                    table_name,
+                    &mut diags,
+                );
             }
         }
     }
     diags
+}
+
+/// 收集类型中所有 ref 目标（map 只收集 value，key 不作为 ref）。
+fn collect_ref_targets<'a>(ti: &'a TypeInfo, out: &mut HashSet<&'a str>) {
+    match &ti.kind {
+        TypeKind::Ref(target) => {
+            out.insert(target.as_str());
+        }
+        TypeKind::List(elem_ti) | TypeKind::Set(elem_ti) | TypeKind::Array(elem_ti) => {
+            collect_ref_targets(elem_ti, out);
+        }
+        TypeKind::Map(_, value_ti) => collect_ref_targets(value_ti, out),
+        _ => {}
+    }
+}
+
+/// 递归校验容器内的 ref（支持 list/set/array/map 嵌套；map 只校验 value）。
+fn check_refs_in_value(
+    value: &DType,
+    ti: &TypeInfo,
+    target_table: &str,
+    keys: &HashSet<String>,
+    row: usize,
+    fname: &str,
+    table_name: &str,
+    diags: &mut Vec<Diagnostic>,
+) {
+    match (&ti.kind, value) {
+        (TypeKind::Ref(target), val) if target == target_table => {
+            if val.is_null() {
+                return;
+            }
+            let key = key_string(val);
+            if !keys.contains(&key) {
+                diags.push(Diagnostic::error(
+                    format!("{}[行{}].{}", table_name, row, fname),
+                    format!("外键值 {} 不存在于表 '{}'", key, target_table),
+                ));
+            }
+        }
+        (
+            TypeKind::List(elem_ti),
+            DType::List(values),
+        ) | (
+            TypeKind::Set(elem_ti),
+            DType::Set(values),
+        ) | (
+            TypeKind::Array(elem_ti),
+            DType::Array(values),
+        ) => {
+            for value in values {
+                check_refs_in_value(
+                    value,
+                    elem_ti,
+                    target_table,
+                    keys,
+                    row,
+                    fname,
+                    table_name,
+                    diags,
+                );
+            }
+        }
+        (TypeKind::Map(_, value_ti), DType::Map(entries)) => {
+            for (_, value) in entries {
+                check_refs_in_value(
+                    value,
+                    value_ti,
+                    target_table,
+                    keys,
+                    row,
+                    fname,
+                    table_name,
+                    diags,
+                );
+            }
+        }
+        _ => {}
+    }
 }
 
 /// 解析 `[min,max]` 闭区间。
@@ -426,7 +507,9 @@ pub fn key_string(v: &DType) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Record;
     use crate::types::TypeKind;
+    use std::collections::HashMap;
 
     #[test]
     fn range_validator() {
@@ -450,6 +533,64 @@ mod tests {
         assert_eq!(parse_range("[1,100]").unwrap(), (1.0, 100.0));
         assert!(parse_range("[100,1]").is_err());
         assert!(parse_range("abc").is_err());
+    }
+
+    #[test]
+    fn foreign_keys_in_containers() {
+        let table = DefTable {
+            name: "TbBag".into(),
+            module: "game".into(),
+            comment: None,
+            mode: TableMode::List,
+            index: vec![],
+            value_type: "game.BagCfg".into(),
+            input: vec![],
+            groups: vec![],
+        };
+        let fields = vec![
+            (
+                "items".into(),
+                TypeInfo::new(TypeKind::List(Box::new(TypeInfo::new(TypeKind::Ref(
+                    "TbItem".into(),
+                ))))),
+            ),
+            (
+                "slots".into(),
+                TypeInfo::new(TypeKind::Map(
+                    Box::new(TypeInfo::new(TypeKind::Str)),
+                    Box::new(TypeInfo::new(TypeKind::Ref("TbItem".into()))),
+                )),
+            ),
+        ];
+        let key_sets = HashMap::from([(
+            "TbItem".to_string(),
+            HashSet::from(["i1".to_string(), "i2".to_string()]),
+        )]);
+
+        let mut valid = TableData::new();
+        let mut valid_record = Record::with_capacity(fields.len());
+        valid_record.push(DType::List(vec![DType::Int(1), DType::Null]));
+        valid_record.push(DType::Map(vec![
+            (DType::Str("a".into()), DType::Int(2)),
+            (DType::Str("b".into()), DType::Null),
+        ]));
+        valid.push(valid_record);
+        assert!(validate_foreign_keys("TbBag", &table, &valid, &fields, &key_sets).is_empty());
+
+        let mut invalid = TableData::new();
+        let mut invalid_record = Record::with_capacity(fields.len());
+        invalid_record.push(DType::List(vec![DType::Int(3)]));
+        invalid_record.push(DType::Map(vec![(
+            DType::Str("a".into()),
+            DType::Int(4),
+        )]));
+        invalid.push(invalid_record);
+        let diags = validate_foreign_keys("TbBag", &table, &invalid, &fields, &key_sets);
+        assert_eq!(diags.len(), 2);
+        assert_eq!(diags[0].source, Some("TbBag[行1].items".to_string()));
+        assert_eq!(diags[0].message, "外键值 i3 不存在于表 'TbItem'");
+        assert_eq!(diags[1].source, Some("TbBag[行1].slots".to_string()));
+        assert_eq!(diags[1].message, "外键值 i4 不存在于表 'TbItem'");
     }
 
     #[test]

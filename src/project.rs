@@ -479,10 +479,10 @@ pub fn compile_project(dir: &Path, config: &LiuHuoConfig) -> ProjectCompileOutco
             }
         }
 
-        // 第二阶段：建主键索引（map 表）
+        // 第二阶段：建主键索引（map/list 表，one 单条表无引用意义）
         let mut key_sets: HashMap<String, HashSet<String>> = HashMap::new();
         for (name, (table, data, fields)) in &loaded {
-            if table.mode == TableMode::Map
+            if matches!(table.mode, TableMode::Map | TableMode::List)
                 && !table.index.is_empty()
                 && let Some(col) = table.index[0].columns.first()
                 && let Some(pos) = fields.iter().position(|(n, _)| n == col)
