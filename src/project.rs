@@ -424,7 +424,7 @@ impl ProjectCompileOutcome {
 }
 
 /// 全量编译：多文件 schema 加载 → 编译 → 数据加载 → 校验 → 缓存。
-pub fn compile_project(dir: &Path, _config: &LiuHuoConfig) -> ProjectCompileOutcome {
+pub fn compile_project(dir: &Path, config: &LiuHuoConfig) -> ProjectCompileOutcome {
     let mut diagnostics = Vec::new();
 
     // 1. 扫描并加载所有 schema 定义
@@ -445,7 +445,10 @@ pub fn compile_project(dir: &Path, _config: &LiuHuoConfig) -> ProjectCompileOutc
         loader_registry.register(JsonDataLoader);
         loader_registry.register(TextDataLoader);
         loader_registry.register(crate::lhd::LhdDataLoader);
-        let validator_registry = ValidatorRegistry::with_defaults();
+        let validator_registry = match config.path_root.as_deref() {
+            Some(root) => ValidatorRegistry::with_defaults_and_root(Some(Path::new(root))),
+            None => ValidatorRegistry::with_defaults(),
+        };
 
         // 第一阶段：加载所有表数据
         let mut loaded: HashMap<String, LoadedTable> = HashMap::new();

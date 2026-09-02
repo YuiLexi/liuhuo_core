@@ -9,6 +9,8 @@ pub struct LiuHuoConfig {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path_root: Option<String>,
     #[serde(default)]
     pub groups: Vec<GroupConfig>,
     #[serde(default)]
@@ -107,6 +109,7 @@ mod tests {
         let config = LiuHuoConfig {
             name: "demo".into(),
             description: Some("测试项目".into()),
+            path_root: Some("assets".into()),
             groups: vec![GroupConfig {
                 name: "c".into(),
                 is_default: true,
@@ -134,6 +137,7 @@ mod tests {
         let yaml = config.to_string().unwrap();
         let back: LiuHuoConfig = LiuHuoConfig::parse_str(&yaml).unwrap();
         assert_eq!(back.name, "demo");
+        assert_eq!(back.path_root.as_deref(), Some("assets"));
         assert_eq!(
             back.exports[0].tag_filter.as_ref().unwrap().mode,
             TagFilterMode::Include

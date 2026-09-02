@@ -7,6 +7,7 @@ use crate::diagnostic::Diagnostic;
 use crate::types::{TypeInfo, TypeKind};
 use crate::value::{DType, TableData};
 use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
 /// 字段级校验器（对单个字段值校验）。
 pub trait IDataValidator: std::fmt::Debug + Send + Sync {
@@ -45,6 +46,15 @@ impl ValidatorRegistry {
         r.register_field(SizeValidator);
         r.register_table(UniqueKeyValidator);
         r.register_table(SingleRecordValidator);
+        r
+    }
+
+    /// 注册内置校验器与路径根（`path` 标签）。
+    pub fn with_defaults_and_root(root: Option<&Path>) -> Self {
+        let mut r = Self::with_defaults();
+        r.register_field(PathValidator {
+            root: root.map(Path::to_path_buf),
+        });
         r
     }
 
@@ -158,6 +168,45 @@ impl IDataValidator for SizeValidator {
             return Err(format!("容器大小 {} 超出范围 [{}, {}]", len, min, max));
         }
         Ok(())
+    }
+}
+
+/// 路径存在性校验（`path` 标签）。
+#[derive(Debug, Default)]
+pub struct PathValidator {
+    pub root: Option<PathBuf>,
+}
+
+impl IDataValidator for PathValidator {
+    fn name(&self) -> &str {
+        "path"
+    }
+
+    fn validate(&self, value: &DType, type_info: &TypeInfo) -> Result<(), String> {
+        if !type_info.tags.contains_key("path") {
+            return Ok(());
+        }
+        let s = match value {
+            DType::Str(s) | DType::Text(s) => s,
+            DType::Null => return Ok(()),
+            other => {
+                return Err(format!("path 校验不适用于类型 {}", other.type_name()));
+            }
+        };
+        let candidate = Path::new(s);
+        let exists = if candidate.is_absolute() {
+            candidate.exists()
+        } else {
+            match &self.root {
+                Some(root) => root.join(candidate).exists(),
+                None => candidate.exists(),
+            }
+        };
+        if exists {
+            Ok(())
+        } else {
+            Err(format!("路径 '{}' 不存在", s))
+        }
     }
 }
 
@@ -444,6 +493,73 @@ mod tests {
             .field_validators
             .iter()
             .any(|v| v.name() == "nonneg"));
+    }
+
+    #[test]
+    fn path_validator_with_absolute_and_root_paths() {
+        let root = std::env::temp_dir().join(format!(
+            "liuhuo_path_validator_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let dir = root.join("assets/textures");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("icon.png");
+        std::fs::write(&file, "png").unwrap();
+
+        let validator = PathValidator {
+            root: Some(root.join("assets")),
+        };
+        let ti = TypeInfo {
+            kind: TypeKind::Str,
+            nullable: false,
+            tags: [("path".to_string(), "true".to_string())]
+                .into_iter()
+                .collect(),
+        };
+
+        assert!(validator
+            .validate(&DType::Str(file.to_string_lossy().into_owned()), &ti)
+            .is_ok());
+        assert_eq!(
+            validator
+                .validate(
+                    &DType::Str(root.join("missing.png").to_string_lossy().into_owned()),
+                    &ti
+                )
+                .unwrap_err(),
+            format!("路径 '{}' 不存在", root.join("missing.png").display())
+        );
+        assert!(validator
+            .validate(&DType::Text("textures/icon.png".to_string()), &ti)
+            .is_ok());
+        assert_eq!(
+            validator
+                .validate(&DType::Text("textures/missing.png".to_string()), &ti)
+                .unwrap_err(),
+            "路径 'textures/missing.png' 不存在"
+        );
+        assert!(validator.validate(&DType::Null, &ti).is_ok());
+
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn path_validator_only_registered_with_root() {
+        let defaults = ValidatorRegistry::with_defaults();
+        assert!(!defaults
+            .field_validators
+            .iter()
+            .any(|v| v.name() == "path"));
+
+        let with_root = ValidatorRegistry::with_defaults_and_root(Some(Path::new("assets")));
+        assert!(with_root
+            .field_validators
+            .iter()
+            .any(|v| v.name() == "path"));
     }
 
     #[test]

@@ -55,7 +55,7 @@ pub use types::{
     EmptyResolver, MapResolver, TypeInfo, TypeKind, TypeRef, TypeResolver, parse_type,
 };
 pub use validate::{
-    IDataValidator, ITableValidator, NonNegativeValidator, RangeValidator,
+    IDataValidator, ITableValidator, NonNegativeValidator, PathValidator, RangeValidator,
     SingleRecordValidator, SizeValidator, UniqueKeyValidator, ValidatorRegistry, validate_table,
 };
 pub use value::{DType, DataContext, Record, TableData, update_cell};
