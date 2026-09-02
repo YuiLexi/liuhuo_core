@@ -7,9 +7,13 @@ use liuhuo_core::{
 };
 use std::path::{Path, PathBuf};
 
+/// 并行测试下保证每个测试独占一个临时根目录，避免互相 remove_dir_all 竞态。
+static ROOT_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 /// 临时根目录（create_project 的 parent）。
 fn temp_root() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("liuhuo_pipeline_{}", std::process::id()));
+    let n = ROOT_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!("liuhuo_pipeline_{}_{}", std::process::id(), n));
     let _ = std::fs::remove_dir_all(&dir);
     dir
 }
