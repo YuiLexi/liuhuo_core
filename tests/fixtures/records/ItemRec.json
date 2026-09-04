@@ -1,0 +1,12 @@
+{
+  "name": "ItemRec",
+  "module": "game",
+  "comment": "道具记录（表值类型，字段带句柄）",
+  "fields": [
+    { "name": "id", "type": "int", "comment": "ID", "handles": [ { "name": "nonneg", "arg": "" } ] },
+    { "name": "name", "type": "string", "comment": "名称" },
+    { "name": "quality", "type": "Quality", "comment": "品质" },
+    { "name": "price", "type": "int", "comment": "价格", "handles": [ { "name": "range", "arg": "[0,9999]" } ] },
+    { "name": "attrs", "type": "map<string,int>", "comment": "属性", "handles": [ { "name": "size", "arg": "10" } ] }
+  ]
+}

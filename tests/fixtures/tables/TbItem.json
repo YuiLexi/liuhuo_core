@@ -4,6 +4,6 @@
   "comment": "道具表",
   "mode": "map",
   "index": "id",
-  "value_type": "game.ItemCfg",
+  "value_type": "game.ItemRec",
   "input": ["item.json"]
 }

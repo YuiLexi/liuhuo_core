@@ -89,8 +89,23 @@ pub struct RawField {
     pub comment: Option<String>,
     #[serde(default)]
     pub groups: Vec<String>,
+    /// 句柄：仅 Record 字段合法（Bean 字段禁止）。数据校验指令，支持多个。
+    /// JSON 形如 `"handles": {"range": "[0,9999]", "size": "10"}`。
+    #[serde(default)]
+    pub handles: Vec<Handle>,
     #[serde(default)]
     pub properties: HashMap<String, String>,
+}
+
+/// 字段句柄：如何对该字段进行数据处理（校验约束）。支持多句柄。
+/// 常见：range（范围）、size（容器尺寸）、ref（跨表引用）、path（路径校验）、nonneg（非负）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Handle {
+    /// 句柄名（与校验器 name 对应）。
+    pub name: String,
+    /// 句柄参数（range 的 "[0,9999]"、ref 的 "TbItem.id" 等）。
+    #[serde(default)]
+    pub arg: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -213,6 +228,8 @@ pub struct DefField {
     pub type_info: TypeInfo,
     pub comment: Option<String>,
     pub groups: Vec<String>,
+    /// 句柄（仅 Record 字段有；Bean 字段恒空）。
+    pub handles: Vec<Handle>,
 }
 
 #[derive(Debug, Clone)]
@@ -428,12 +445,23 @@ pub fn compile_bean(
                         format!("字段 '{}' 引用了未定义的类型 '{}'", rf.name, u),
                     ));
                 }
+                if !rf.handles.is_empty() {
+                    diags.push(Diagnostic::error(
+                        &full,
+                        format!(
+                            "Bean 字段 '{}' 不允许句柄 {:?}——句柄仅 Record 字段合法（数据校验属数据表层职责）",
+                            rf.name,
+                            rf.handles.iter().map(|h| h.name.clone()).collect::<Vec<_>>()
+                        ),
+                    ));
+                }
                 fields.push(DefField {
                     name: rf.name.clone(),
                     type_str: rf.r#type.clone(),
                     type_info: ti,
                     comment: rf.comment.clone(),
                     groups: rf.groups.clone(),
+                    handles: Vec::new(),
                 });
             }
             Err(e) => diags.push(Diagnostic::error(
@@ -464,6 +492,7 @@ pub fn compile_bean(
                 type_info: pti.clone(),
                 comment: None,
                 groups: Vec::new(),
+                handles: Vec::new(),
             });
         }
     }
@@ -512,8 +541,14 @@ pub fn compile_table(
         diags.push(Diagnostic::error(&full, "value_type 不能为空"));
     } else {
         match resolver.resolve(raw.value_type.trim()) {
-            Some(TypeRef::Bean) => deps.push(raw.value_type.trim().to_string()),
             Some(TypeRef::Record) => deps.push(raw.value_type.trim().to_string()),
+            Some(TypeRef::Bean) => diags.push(Diagnostic::error(
+                &full,
+                format!(
+                    "value_type '{}' 是 Bean——表的值类型只能是 Record（Bean 字段不含句柄，不满足数据校验需求）",
+                    raw.value_type
+                ),
+            )),
             Some(TypeRef::Enum) => diags.push(Diagnostic::error(
                 &full,
                 format!("value_type '{}' 是枚举，不能作为表记录类型", raw.value_type),
@@ -622,12 +657,24 @@ pub fn compile_record(
                         format!("字段 '{}' 引用了未定义的类型 '{}'", rf.name, u),
                     ));
                 }
+                // 句柄桥接：handles 并入 type_info.tags，现有校验器（range/size/ref…）零改动复用
+                let mut ti = ti;
+                for h in &rf.handles {
+                    if ti.tags.contains_key(&h.name) {
+                        diags.push(Diagnostic::error(
+                            &full,
+                            format!("字段 '{}' 句柄 '{}' 与类型串标签重复", rf.name, h.name),
+                        ));
+                    }
+                    ti.tags.insert(h.name.clone(), h.arg.clone());
+                }
                 fields.push(DefField {
                     name: rf.name.clone(),
                     type_str: rf.r#type.clone(),
                     type_info: ti,
                     comment: rf.comment.clone(),
                     groups: rf.groups.clone(),
+                    handles: rf.handles.clone(),
                 });
             }
             Err(e) => diags.push(Diagnostic::error(
@@ -686,9 +733,8 @@ pub fn parse_flag_expr(expr: &str, resolve: &dyn Fn(&str) -> Option<i64>) -> Res
         }
         let val = match parse_int_literal(part) {
             Ok(v) => v,
-            Err(_) => resolve(part).ok_or_else(|| {
-                format!("flag 表达式段 '{}' 既非整数也非已知枚举项", part)
-            })?,
+            Err(_) => resolve(part)
+                .ok_or_else(|| format!("flag 表达式段 '{}' 既非整数也非已知枚举项", part))?,
         };
         result |= val;
         any = true;
@@ -739,7 +785,9 @@ mod tests {
     #[test]
     fn flag_expr_parse() {
         let table: std::collections::HashMap<&str, i64> =
-            [("None", 0), ("Fire", 1), ("Ice", 2), ("Wind", 4)].into_iter().collect();
+            [("None", 0), ("Fire", 1), ("Ice", 2), ("Wind", 4)]
+                .into_iter()
+                .collect();
         let resolve = |n: &str| table.get(n).copied();
         assert_eq!(parse_flag_expr("Fire|Ice", &resolve).unwrap(), 3);
         assert_eq!(parse_flag_expr("Fire|Ice|Wind", &resolve).unwrap(), 7);
@@ -762,11 +810,41 @@ mod tests {
             is_unique: false,
             properties: Default::default(),
             items: vec![
-                RawEnumItem { name: "None".into(), value: Some("0".into()), alias: None, comment: None, properties: Default::default() },
-                RawEnumItem { name: "Fire".into(), value: Some("1".into()), alias: None, comment: None, properties: Default::default() },
-                RawEnumItem { name: "Ice".into(), value: Some("2".into()), alias: None, comment: None, properties: Default::default() },
-                RawEnumItem { name: "Both".into(), value: Some("Fire|Ice".into()), alias: None, comment: None, properties: Default::default() },
-                RawEnumItem { name: "All".into(), value: Some("Fire|Ice|0x4".into()), alias: None, comment: None, properties: Default::default() },
+                RawEnumItem {
+                    name: "None".into(),
+                    value: Some("0".into()),
+                    alias: None,
+                    comment: None,
+                    properties: Default::default(),
+                },
+                RawEnumItem {
+                    name: "Fire".into(),
+                    value: Some("1".into()),
+                    alias: None,
+                    comment: None,
+                    properties: Default::default(),
+                },
+                RawEnumItem {
+                    name: "Ice".into(),
+                    value: Some("2".into()),
+                    alias: None,
+                    comment: None,
+                    properties: Default::default(),
+                },
+                RawEnumItem {
+                    name: "Both".into(),
+                    value: Some("Fire|Ice".into()),
+                    alias: None,
+                    comment: None,
+                    properties: Default::default(),
+                },
+                RawEnumItem {
+                    name: "All".into(),
+                    value: Some("Fire|Ice|0x4".into()),
+                    alias: None,
+                    comment: None,
+                    properties: Default::default(),
+                },
             ],
         };
         let (def, _deps, diags) = compile_enum(&raw);
@@ -986,8 +1064,10 @@ mod tests {
         let mut raw = record_raw();
         raw.index = Some("missing".into());
         let (_, _, diags) = compile_record(&raw, &MapResolver::new());
-        assert!(diags
-            .iter()
-            .any(|d| d.message.contains("索引列 'missing' 不存在")));
+        assert!(
+            diags
+                .iter()
+                .any(|d| d.message.contains("索引列 'missing' 不存在"))
+        );
     }
 }
