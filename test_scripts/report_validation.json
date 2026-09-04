@@ -10,7 +10,7 @@
         },
         {
           "detail": "",
-          "name": "表数量 = 6（map×3 + list + one + 多态map）",
+          "name": "表数量 = 6（map×3 + list + one + drop表）",
           "passed": true
         },
         {
@@ -30,22 +30,12 @@
         },
         {
           "detail": "",
-          "name": "枚举=2 / Bean=4 / Record=1 / 表=6",
+          "name": "枚举=2 / Record=4 / 表=6（Bean=0：表值已全部 Record 化）",
           "passed": true
         },
         {
           "detail": "",
-          "name": "继承层级字段 = 7（父2+自5）",
-          "passed": true
-        },
-        {
-          "detail": "",
-          "name": "层级字段首列为父类 id",
-          "passed": true
-        },
-        {
-          "detail": "",
-          "name": "record 索引自动映射到 TbLoot（index=[id]）",
+          "name": "RewardRec 7 字段 + 句柄桥接（nonneg/size/path）",
           "passed": true
         },
         {
@@ -60,7 +50,7 @@
         },
         {
           "detail": "",
-          "name": "nonneg 经多态子类生效（count=-3）",
+          "name": "nonneg 反例之二（count=-3 独立行）",
           "passed": true
         },
         {
@@ -120,13 +110,13 @@
         }
       ],
       "failed": 0,
-      "passed": 23,
-      "total": 23
+      "passed": 21,
+      "total": 21
     }
   },
-  "passed": 23,
+  "passed": 21,
   "suite": "校验矩阵端到端测试（K 组）",
   "tool": "liuhuo_core",
-  "total": 23,
+  "total": 21,
   "verdict": "PASS"
 }

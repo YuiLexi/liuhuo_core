@@ -76,6 +76,12 @@ fn build_symtab() -> SymbolTable {
     )
     .unwrap();
     let _ = sym.register(&equip);
+    // 表值类型 = Record 独占：EquipRec（字段=层级字段，price 带句柄示范）
+    let rec: RawDef = serde_json::from_str(
+        r#"{"Record":{"name":"EquipRec","module":"game","fields":[{"name":"id","type":"int"},{"name":"name","type":"string"},{"name":"quality","type":"Quality"},{"name":"atk","type":"int","handles":[{"name":"range","arg":"[0,9999]"}]},{"name":"tags","type":"list<string>"},{"name":"attr","type":"map<string,int>"}]}}"#,
+    )
+    .unwrap();
+    let _ = sym.register(&rec);
     sym
 }
 
@@ -86,7 +92,7 @@ fn equip_table() -> DefTable {
         comment: None,
         mode: liuhuo_core::defs::TableMode::Map,
         index: vec![TableIndex { columns: vec!["id".into()] }],
-        value_type: "game.EquipCfg".into(),
+        value_type: "game.EquipRec".into(),
         input: vec!["equip.lhd".into()],
         groups: vec![],
     }
@@ -95,7 +101,7 @@ fn equip_table() -> DefTable {
 fn header_ok() -> String {
     let sym = build_symtab();
     format!(
-        "## format=lhd\n## version=1\n## table=TbEquip\n## record=game.EquipCfg\n## fields=id;name;quality;atk;tags;attr\n## order=id\n## schema={}\n",
+        "## format=lhd\n## version=1\n## table=TbEquip\n## record=game.EquipRec\n## fields=id;name;quality;atk;tags;attr\n## order=id\n## schema={}\n",
         schema_fingerprint(&equip_table(), &sym)
     )
 }
@@ -117,7 +123,7 @@ fn scenario_header() {
 
     // 自定义元数据 + 未知指令容忍
     let doc2 = format!(
-        "## format=lhd\n## version=1\n## table=TbEquip\n## record=game.EquipCfg\n## fields=id;name;quality;atk;tags;attr\n## order=id\n## @author lyra\n## future=xyz\n\n{{1;\"a\";Green;1;[];{{}}}}",
+        "## format=lhd\n## version=1\n## table=TbEquip\n## record=game.EquipRec\n## fields=id;name;quality;atk;tags;attr\n## order=id\n## @author lyra\n## future=xyz\n\n{{1;\"a\";Green;1;[];{{}}}}",
     );
     let r2 = load_lhd_from_str(&doc2, &equip_table(), &sym).unwrap();
     check("A", "自定义 @元数据与未知指令容忍", r2.data.len() == 1 && r2.header.custom.len() == 1,
@@ -275,7 +281,7 @@ fn scenario_polymorphic() {
     };
     // 多态表：record=EquipCfg（父），子类 WeaponCfg 多一个 range 字段
     let head = format!(
-        "## format=lhd\n## version=1\n## table=TbEquip\n## record=game.EquipCfg\n## fields=id;name;quality;atk;tags;attr\n## order=id\n## schema={}\n",
+        "## format=lhd\n## version=1\n## table=TbEquip\n## record=game.EquipRec\n## fields=id;name;quality;atk;tags;attr\n## order=id\n## schema={}\n",
         schema_fingerprint(&table, &sym)
     );
     let doc = format!(
@@ -287,7 +293,7 @@ fn scenario_polymorphic() {
         r.data.len() == 2 && r.data.records[0].bean.as_deref() == Some("game.WeaponCfg"),
         &format!("{:?}", r.diagnostics));
     check("F", "无标记行默认 record 类型",
-        r.data.records[1].bean.as_deref() == Some("game.EquipCfg"), "");
+        r.data.records[1].bean.as_deref() == Some("game.EquipRec"), "");
 
     // @type 缺闭合括号 → 行级错误
     let doc2 = format!("{}\n@type(game.WeaponCfg{{1|\"x\";Green;1;[];{{}}}}", head);
@@ -324,13 +330,13 @@ fn scenario_drift() {
         r3.data.len() == 1 && r3.diagnostics.iter().any(|d| !d.is_error() && d.message.contains("指纹")),
         &format!("{:?}", r3.diagnostics));
 
-    // 4. schema 真实变更（加字段）→ fields 核对报错
+    // 4. schema 真实变更（Record 加字段）→ fields 核对报错
     let mut sym2 = build_symtab();
-    let equip_v2: RawDef = serde_json::from_str(
-        r#"{"Bean":{"name":"EquipCfg","module":"game","parent":"game.ItemBase","fields":[{"name":"quality","type":"Quality"},{"name":"atk","type":"int"},{"name":"tags","type":"list<string>"},{"name":"attr","type":"map<string,int>"},{"name":"level","type":"int"}]}}"#,
+    let rec_v2: RawDef = serde_json::from_str(
+        r#"{"Record":{"name":"EquipRec","module":"game","fields":[{"name":"id","type":"int"},{"name":"name","type":"string"},{"name":"quality","type":"Quality"},{"name":"atk","type":"int","handles":[{"name":"range","arg":"[0,9999]"}]},{"name":"tags","type":"list<string>"},{"name":"attr","type":"map<string,int>"},{"name":"level","type":"int"}]}}"#,
     )
     .unwrap();
-    let _ = sym2.update(&equip_v2);
+    let _ = sym2.update(&rec_v2);
     let doc4 = format!("{}\n{{1;\"a\";Green;1;[];{{}}}}", header_ok());
     let r4 = load_lhd_from_str(&doc4, &equip_table(), &sym2).unwrap();
     check("G", "schema 加字段后旧数据文件报错", r4.diagnostics.iter().any(|d| d.is_error()),
@@ -400,12 +406,12 @@ fn scenario_strict() {
     // 6. bool 裸形式（好行）+ 引号形式（坏行）
     let mut sym2 = build_symtab();
     let bean: RawDef = serde_json::from_str(
-        r#"{"Bean":{"name":"FlagCfg","module":"game","fields":[{"name":"id","type":"int"},{"name":"on","type":"bool"}]}}"#,
+        r#"{"Record":{"name":"FlagRec","module":"game","fields":[{"name":"id","type":"int"},{"name":"on","type":"bool"}]}}"#,
     ).unwrap();
     let _ = sym2.register(&bean);
     let t2 = DefTable {
         name: "game.TbFlag".into(),
-        value_type: "game.FlagCfg".into(),
+        value_type: "game.FlagRec".into(),
         index: vec![TableIndex { columns: vec!["id".into()] }],
         ..equip_table()
     };
@@ -413,7 +419,7 @@ fn scenario_strict() {
         "## format=lhd
 ## version=1
 ## table=TbFlag
-## record=game.FlagCfg
+## record=game.FlagRec
 ## fields=id;on
 ## order=id
 ## schema={}
@@ -443,18 +449,18 @@ fn scenario_flag() {
     .unwrap();
     let _ = sym.register(&enm);
     let bean: RawDef = serde_json::from_str(
-        r#"{"Bean":{"name":"SkillCfg","module":"game","fields":[{"name":"id","type":"int"},{"name":"name","type":"string"},{"name":"element","type":"Element"}]}}"#,
+        r#"{"Record":{"name":"SkillRec","module":"game","fields":[{"name":"id","type":"int"},{"name":"name","type":"string"},{"name":"element","type":"Element"}]}}"#,
     )
     .unwrap();
     let _ = sym.register(&bean);
     let t = DefTable {
         name: "game.TbSkill".into(),
-        value_type: "game.SkillCfg".into(),
+        value_type: "game.SkillRec".into(),
         index: vec![TableIndex { columns: vec!["id".into()] }],
         ..equip_table()
     };
     let head = format!(
-        "## format=lhd\n## version=1\n## table=TbSkill\n## record=game.SkillCfg\n## fields=id;name;element\n## order=id\n## schema={}\n",
+        "## format=lhd\n## version=1\n## table=TbSkill\n## record=game.SkillRec\n## fields=id;name;element\n## order=id\n## schema={}\n",
         schema_fingerprint(&t, &sym)
     );
 
@@ -525,7 +531,7 @@ fn scenario_save_perf(root: &Path) {
         ..equip_table()
     };
     let head_l = format!(
-        "## format=lhd\n## version=1\n## table=TbEquipList\n## record=game.EquipCfg\n## fields=id;name;quality;atk;tags;attr\n## order=-\n"
+        "## format=lhd\n## version=1\n## table=TbEquipList\n## record=game.EquipRec\n## fields=id;name;quality;atk;tags;attr\n## order=-\n"
     );
     let docl = format!(
         "{}\n{{3;\"c\";Blue;30;[];{{}}}}\n{{1;\"a\";Green;10;[];{{}}}}\n{{2;\"b\";Green;20;[];{{}}}}",

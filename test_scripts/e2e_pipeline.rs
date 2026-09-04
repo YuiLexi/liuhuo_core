@@ -45,6 +45,12 @@ fn build_project(root: &Path, name: &str) -> PathBuf {
     .unwrap();
     write_project_file(
         &dir,
+        "schemas/records/ItemRec.json",
+        r#"{"name":"ItemRec","module":"game","fields":[{"name":"id","type":"int"},{"name":"name","type":"string"},{"name":"quality","type":"Quality"},{"name":"price","type":"int","handles":[{"name":"range","arg":"[0,9999]"}]}]}"#,
+    )
+    .unwrap();
+    write_project_file(
+        &dir,
         "schemas/beans/ItemCfg.json",
         r#"{"name":"ItemCfg","module":"game","fields":[{"name":"id","type":"int"},{"name":"name","type":"string"},{"name":"quality","type":"Quality"},{"name":"price","type":"int(range=[0,9999])"}]}"#,
     )
@@ -52,7 +58,7 @@ fn build_project(root: &Path, name: &str) -> PathBuf {
     write_project_file(
         &dir,
         "schemas/tables/TbItem.json",
-        r#"{"name":"TbItem","module":"game","mode":"map","index":"id","value_type":"game.ItemCfg","input":["item.json"]}"#,
+        r#"{"name":"TbItem","module":"game","mode":"map","index":"id","value_type":"game.ItemRec","input":["item.json"]}"#,
     )
     .unwrap();
     write_project_file(

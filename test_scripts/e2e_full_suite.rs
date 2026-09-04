@@ -91,16 +91,20 @@ fn build_rich_project(root: &Path, name: &str) -> PathBuf {
     write_project_file(&dir, "schemas/beans/EquipCfg.json",
         r#"{"name":"EquipCfg","module":"game","comment":"装备","parent":"game.BaseItem","fields":[{"name":"quality","type":"Quality"},{"name":"atk","type":"int"},{"name":"price","type":"int(range=[0,9999])"},{"name":"tags","type":"list<string>"},{"name":"attr","type":"map<string,int>"}]}"#).unwrap();
     // map 表
+    write_project_file(&dir, "schemas/records/EquipRec.json",
+        r#"{"name":"EquipRec","module":"game","comment":"装备记录","fields":[{"name":"id","type":"int"},{"name":"name","type":"string"},{"name":"quality","type":"Quality"},{"name":"atk","type":"int"},{"name":"price","type":"int","handles":[{"name":"range","arg":"[0,9999]"}]},{"name":"tags","type":"list<string>"},{"name":"attr","type":"map<string,int>"}]}"#).unwrap();
     write_project_file(&dir, "schemas/tables/TbEquip.json",
-        r#"{"name":"TbEquip","module":"game","comment":"装备表","mode":"map","index":"id","value_type":"game.EquipCfg","input":["equip.json"]}"#).unwrap();
+        r#"{"name":"TbEquip","module":"game","comment":"装备表","mode":"map","index":"id","value_type":"game.EquipRec","input":["equip.json"]}"#).unwrap();
     // list 表（联合索引 id+quality 唯一）
     write_project_file(&dir, "schemas/tables/TbEquipList.json",
-        r#"{"name":"TbEquipList","module":"game","comment":"装备列表表","mode":"list","index":"id+quality","value_type":"game.EquipCfg","input":["equip_list.json"]}"#).unwrap();
+        r#"{"name":"TbEquipList","module":"game","comment":"装备列表表","mode":"list","index":"id+quality","value_type":"game.EquipRec","input":["equip_list.json"]}"#).unwrap();
     // one 表（单例，用独立小 Bean）
     write_project_file(&dir, "schemas/beans/GlobalCfg.json",
         r#"{"name":"GlobalCfg","module":"game","comment":"全局配置","fields":[{"name":"version","type":"string"},{"name":"max_level","type":"int"}]}"#).unwrap();
+    write_project_file(&dir, "schemas/records/GlobalRec.json",
+        r#"{"name":"GlobalRec","module":"game","comment":"全局记录","fields":[{"name":"version","type":"string"},{"name":"max_level","type":"int"}]}"#).unwrap();
     write_project_file(&dir, "schemas/tables/TbGlobal.json",
-        r#"{"name":"TbGlobal","module":"game","comment":"全局配置表","mode":"one","value_type":"game.GlobalCfg","input":["global.txt"]}"#).unwrap();
+        r#"{"name":"TbGlobal","module":"game","comment":"全局配置表","mode":"one","value_type":"game.GlobalRec","input":["global.txt"]}"#).unwrap();
 
     // JSON 数据（map 表）
     write_project_file(&dir, "datas/equip.json",
@@ -370,7 +374,7 @@ fn scenario_export(root: &Path) {
 
     // E4 公式：apply_formula 批量填充
     let mut data2 = equip_data.clone();
-    let fields = TypeResolver::bean_hierarchy_fields(&sym, "game.EquipCfg").unwrap();
+    let fields = TypeResolver::bean_hierarchy_fields(&sym, "game.EquipRec").unwrap();
     let updated = apply_formula(&mut data2, &fields, "atk", "price * 2 + 1").unwrap();
     check("E", "apply_formula 更新 3 行", updated == 3, &format!("{}", updated));
     // 验证写回值：id=1 price=100 → 201

@@ -101,30 +101,24 @@ fn build_matrix(root: &Path, name: &str) -> (PathBuf, PathBuf) {
         r#"{"name":"None","value":"0"},{"name":"Fire","value":"1"},{"name":"Ice","value":"2"},{"name":"Wind","value":"4"}"#,
     );
 
-    // Bean：ItemCfg（ref 目标）
+    // Record：ItemRec（TbItem 值类型，ref 目标）
     write_project_file(
         &dir,
-        "schemas/beans/ItemCfg.json",
-        r#"{"name":"ItemCfg","module":"game","fields":[{"name":"id","type":"int"},{"name":"name","type":"string"}]}"#,
+        "schemas/records/ItemRec.json",
+        r#"{"name":"ItemRec","module":"game","fields":[{"name":"id","type":"int"},{"name":"name","type":"string"}]}"#,
     )
     .unwrap();
-    // Bean 继承：BaseReward（父，含 nonneg）→ ItemReward（子，含容器/size/ref/path）
+    // Record：RewardRec（表值类型；句柄化校验声明：nonneg/size/ref/path）
     write_project_file(
         &dir,
-        "schemas/beans/BaseReward.json",
-        r#"{"name":"BaseReward","module":"game","fields":[{"name":"id","type":"int"},{"name":"count","type":"int(nonneg)"}]}"#,
-    )
-    .unwrap();
-    write_project_file(
-        &dir,
-        "schemas/beans/ItemReward.json",
-        r#"{"name":"ItemReward","module":"game","parent":"game.BaseReward","fields":[{"name":"quality","type":"Quality"},{"name":"elements","type":"set<Element>"},{"name":"tags","type":"list<int>(size=[1,3])"},{"name":"item_refs","type":"list<ref<game.TbItem>>"},{"name":"icon","type":"string(path)"}]}"#,
+        "schemas/records/RewardRec.json",
+        r#"{"name":"RewardRec","module":"game","fields":[{"name":"id","type":"int"},{"name":"count","type":"int","handles":[{"name":"nonneg","arg":""}]},{"name":"quality","type":"Quality"},{"name":"elements","type":"set<Element>"},{"name":"tags","type":"list<int>","handles":[{"name":"size","arg":"[1,3]"}]},{"name":"item_refs","type":"list<ref<game.TbItem>>"},{"name":"icon","type":"string","handles":[{"name":"path","arg":""}]}]}"#,
     )
     .unwrap();
     write_project_file(
         &dir,
-        "schemas/beans/GlobalCfg.json",
-        r#"{"name":"GlobalCfg","module":"game","fields":[{"name":"version","type":"string"},{"name":"max_level","type":"int"}]}"#,
+        "schemas/records/GlobalRec.json",
+        r#"{"name":"GlobalRec","module":"game","fields":[{"name":"version","type":"string"},{"name":"max_level","type":"int"}]}"#,
     )
     .unwrap();
 
@@ -140,19 +134,19 @@ fn build_matrix(root: &Path, name: &str) -> (PathBuf, PathBuf) {
     write_project_file(
         &dir,
         "schemas/tables/TbItem.json",
-        r#"{"name":"TbItem","module":"game","mode":"map","index":"id","value_type":"game.ItemCfg","input":["item.json"]}"#,
+        r#"{"name":"TbItem","module":"game","mode":"map","index":"id","value_type":"game.ItemRec","input":["item.json"]}"#,
     )
     .unwrap();
     write_project_file(
         &dir,
         "schemas/tables/TbReward.json",
-        r#"{"name":"TbReward","module":"game","mode":"map","index":"id","value_type":"game.ItemReward","input":["reward.json"]}"#,
+        r#"{"name":"TbReward","module":"game","mode":"map","index":"id","value_type":"game.RewardRec","input":["reward.json"]}"#,
     )
     .unwrap();
     write_project_file(
         &dir,
         "schemas/tables/TbRewardList.json",
-        r#"{"name":"TbRewardList","module":"game","mode":"list","index":"id+count","value_type":"game.ItemReward","input":["reward_list.json"]}"#,
+        r#"{"name":"TbRewardList","module":"game","mode":"list","index":"id+count","value_type":"game.RewardRec","input":["reward_list.json"]}"#,
     )
     .unwrap();
     write_project_file(
@@ -164,13 +158,13 @@ fn build_matrix(root: &Path, name: &str) -> (PathBuf, PathBuf) {
     write_project_file(
         &dir,
         "schemas/tables/TbGlobal.json",
-        r#"{"name":"TbGlobal","module":"game","mode":"one","value_type":"game.GlobalCfg","input":["global.json"]}"#,
+        r#"{"name":"TbGlobal","module":"game","mode":"one","value_type":"game.GlobalRec","input":["global.json"]}"#,
     )
     .unwrap();
     write_project_file(
         &dir,
         "schemas/tables/TbDrop.json",
-        r#"{"name":"TbDrop","module":"game","mode":"map","index":"id","value_type":"game.BaseReward","input":["drop.json"]}"#,
+        r#"{"name":"TbDrop","module":"game","mode":"map","index":"id","value_type":"game.RewardRec","input":["drop.json"]}"#,
     )
     .unwrap();
 
@@ -198,7 +192,7 @@ fn build_matrix(root: &Path, name: &str) -> (PathBuf, PathBuf) {
     write_project_file(
         &dir,
         "datas/drop.json",
-        r#"[{"$type":"game.ItemReward","id":1,"count":5,"quality":"Green","elements":["Fire"],"tags":[1],"item_refs":[1],"icon":"icon_a.png"}]"#,
+        r#"[{"id":1,"count":5,"quality":"Green","elements":["Fire"],"tags":[1],"item_refs":[1],"icon":"icon_a.png"}]"#,
     )
     .unwrap();
 
@@ -238,7 +232,7 @@ fn scenario_matrix_closed_loop(root: &Path) {
     let config = read_config(&dir).unwrap();
     let o = compile_project(&dir, &config);
     check("K", "矩阵工程编译零诊断", o.is_ok(), &format!("{:#?}", o.diagnostics));
-    check("K", "表数量 = 6（map×3 + list + one + 多态map）", o.table_count == 6, &format!("{}", o.table_count));
+    check("K", "表数量 = 6（map×3 + list + one + drop表）", o.table_count == 6, &format!("{}", o.table_count));
     check("K", "记录总数 = 10（2+2+2+2+1+1）", o.total_records == 10, &format!("{}", o.total_records));
     let cache = read_compile_cache(&dir).unwrap();
     check("K", "编译缓存 ok=true", cache["ok"].as_bool() == Some(true), &cache.to_string());
@@ -247,14 +241,18 @@ fn scenario_matrix_closed_loop(root: &Path) {
     let raws = collect_raws(&dir);
     let diags = sym.compile_all(&raws);
     check("K", "符号表编译零错误", diags.iter().all(|d| !d.is_error()), &format!("{:?}", diags));
-    check("K", "枚举=2 / Bean=4 / Record=1 / 表=6", sym.enum_count() == 2 && sym.bean_count() == 4 && sym.record_count() == 1 && sym.table_count() == 6, &format!("e{}b{}r{}t{}", sym.enum_count(), sym.bean_count(), sym.record_count(), sym.table_count()));
-    // 继承层级字段：ItemReward = 父2 + 自5 = 7
-    let fields = sym.bean_field_names_of("game.ItemReward").unwrap();
-    check("K", "继承层级字段 = 7（父2+自5）", fields.len() == 7, &format!("{:?}", fields));
-    check("K", "层级字段首列为父类 id", fields.first().map(|s| s.as_str()) == Some("id"), &format!("{:?}", fields));
-    // record 索引自动映射到表
-    let loot = sym.get_table("game.TbLoot").unwrap();
-    check("K", "record 索引自动映射到 TbLoot（index=[id]）", loot.index.len() == 1 && loot.index[0].columns == vec!["id".to_string()], &format!("{:?}", loot.index));
+    check("K", "枚举=2 / Record=4 / 表=6（Bean=0：表值已全部 Record 化）", sym.enum_count() == 2 && sym.bean_count() == 0 && sym.record_count() == 4 && sym.table_count() == 6, &format!("e{}b{}r{}t{}", sym.enum_count(), sym.bean_count(), sym.record_count(), sym.table_count()));
+    // RewardRec 平面字段 = 7（id/count/quality/elements/tags/item_refs/icon）——句柄在字段上而非类型串
+    {
+        use liuhuo_core::value::DataContext as _;
+        let fields = liuhuo_core::DataContext::bean_hierarchy_fields(&sym, "game.RewardRec").expect("RewardRec");
+        check("K", "RewardRec 7 字段 + 句柄桥接（nonneg/size/path）",
+            fields.len() == 7
+                && fields.iter().find(|(n, _)| n == "count").unwrap().1.tags.contains_key("nonneg")
+                && fields.iter().find(|(n, _)| n == "tags").unwrap().1.tags.get("size").map(|x| x.as_str()) == Some("[1,3]")
+                && fields.iter().find(|(n, _)| n == "icon").unwrap().1.tags.contains_key("path"),
+            &format!("{:?}", fields.iter().map(|(n, t)| (n.clone(), t.tags.clone())).collect::<Vec<_>>()));
+    }
 }
 
 fn scenario_nonneg(root: &Path) {
@@ -271,9 +269,9 @@ fn scenario_nonneg(root: &Path) {
     let o2 = recompile_with_data(
         &dir,
         "datas/drop.json",
-        r#"[{"$type":"game.ItemReward","id":1,"count":-3,"quality":"Green","elements":["Fire"],"tags":[1],"item_refs":[1],"icon":"icon_a.png"}]"#,
+        r#"[{"id":1,"count":-3,"quality":"Green","elements":["Fire"],"tags":[1],"item_refs":[1],"icon":"icon_a.png"}]"#,
     );
-    check("K", "nonneg 经多态子类生效（count=-3）", has_diag(&o2.diagnostics, "count", "值 -3 为负"), &format!("{:#?}", o2.diagnostics));
+    check("K", "nonneg 反例之二（count=-3 独立行）", has_diag(&o2.diagnostics, "count", "值 -3 为负"), &format!("{:#?}", o2.diagnostics));
 }
 
 fn scenario_size(root: &Path) {
